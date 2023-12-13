@@ -20,7 +20,7 @@ IGNORE_INDEX = -1
 def prepare(
     destination_path: Path = Path("data/lima"), 
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
-    max_seq_length: int = 512,
+    max_seq_length: int = 1024,  # 2048 for the setting in the paper (https://arxiv.org/pdf/2305.11206.pdf)
     seed: int = 42,
     mask_inputs: bool = False,  # as in alpaca-lora
     data_source: str = "GAIR/lima"
@@ -41,7 +41,8 @@ def prepare(
     train_set, test_set = lima_dataset["train"], lima_dataset["test"]
     train_set, test_set = list(train_set), list(test_set)
 
-    train_set = [sample for sample in train_set if sample["source"] != "multi_turn"]
+    # train_set = [sample for sample in train_set if sample["source"] != "multi_turn"]
+    train_set = [sample for sample in train_set]
 
     print(f"train has {len(train_set):,} samples")
     print(f"val has {len(test_set):,} samples")
@@ -60,29 +61,48 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
 
     Currently not contains the multi turn conversations.
     """
-    assert len(example["conversations"]) <= 2
-    full_prompt = example["conversations"][0]
+    assert 1 <= len(example["conversations"]) <= 2 or (example["source"] == "multi_turn")
 
-    TRAIN = (len(example["conversations"]) == 2)
-    encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
+    # encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
+    instructions = example["conversations"][::2]
+    responses = example["conversations"][1::2]
 
-    if TRAIN:
-        full_prompt_and_response = full_prompt + example["conversations"][1]
-        encoded_full_prompt_and_response = tokenize(tokenizer, full_prompt_and_response, eos=True, max_length=max_length)
-
-        # The labels are the full prompt with response, but with the prompt masked out
-        labels = encoded_full_prompt_and_response.clone()
-        if mask_inputs:
-            labels[:len(encoded_full_prompt)] = IGNORE_INDEX
-
-        return {**example, "input_ids": encoded_full_prompt_and_response, "input_ids_no_response": encoded_full_prompt, "labels": labels}
-    else:
+    if len(responses) == 0: # for the test set
+        full_prompt = generate_prompt(instructions[0])
+        encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
         return {**example, "input_ids": encoded_full_prompt}
+    else:
+        label_list = []
+        dialogue_list = []
+        for instr, resp in zip(instructions, responses):
+            full_prompt = generate_prompt(instr)
+            full_prompt_and_response = full_prompt + resp
+            encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
+            encoded_full_prompt_and_response = tokenize(tokenizer, full_prompt_and_response, eos=True, max_length=max_length)
+            label = encoded_full_prompt_and_response.clone()
+            if mask_inputs:
+                label[:len(encoded_full_prompt)] = IGNORE_INDEX
+            dialogue_list.append(encoded_full_prompt_and_response)
+            label_list.append(label)
+            # TODO:  1) to check if ignore_index is set correctly 2) to check if the prefix is correctly tokenized
+        input_ids = torch.cat(dialogue_list, dim=0)
+        labels = torch.cat(label_list, dim=0)
+        input_ids = input_ids[:max_length]
+        labels = labels[:max_length]
+
+        return {**example, "input_ids": input_ids, "labels": labels}
 
 
 def tokenize(tokenizer: Tokenizer, string: str, max_length: int, eos=True) -> torch.Tensor:
     return tokenizer.encode(string, bos=True, eos=eos, max_length=max_length)
 
+
+def generate_prompt(instruction):
+    """Generates a standardized message to prompt the model with an instruction, optional input and a
+    'response' field."""
+
+    return f"[INST]\n{instruction}\n[/INST]\n"
+    
 
 if __name__ == "__main__":
     from jsonargparse import CLI
