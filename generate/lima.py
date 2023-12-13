@@ -15,6 +15,7 @@ from generate import generate
 from lit_llama import Tokenizer, LLaMA
 from lit_llama.lora import lora
 from lit_llama.utils import lazy_load, llama_model_lookup
+from scripts.prepare_lima import generate_prompt
 
 lora_r = 8
 lora_alpha = 16
@@ -63,6 +64,7 @@ def main(
     model = fabric.setup(model)
 
     tokenizer = Tokenizer(tokenizer_path)
+    prompt = generate_prompt(prompt)
     encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)
 
     t0 = time.perf_counter()

@@ -56,7 +56,7 @@ def prepare(
     torch.save(test_set, destination_path / "test.pt")
 
 
-def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_inputs: bool = True):
+def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_inputs: bool = True) -> dict:
     """Processes a single sample.
 
     Currently not contains the multi turn conversations.
@@ -97,7 +97,7 @@ def tokenize(tokenizer: Tokenizer, string: str, max_length: int, eos=True) -> to
     return tokenizer.encode(string, bos=True, eos=eos, max_length=max_length)
 
 
-def generate_prompt(instruction):
+def generate_prompt(instruction) -> str:
     """Generates a standardized message to prompt the model with an instruction, optional input and a
     'response' field."""
 
