@@ -22,7 +22,7 @@ def prepare(
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
     max_seq_length: int = 1024,  # 2048 for the setting in the paper (https://arxiv.org/pdf/2305.11206.pdf)
     seed: int = 42,
-    mask_inputs: bool = False,  # as in alpaca-lora
+    mask_inputs: bool = False,  # not as in alpaca-lora, we have multi-turn dialogue
     data_source: str = "GAIR/lima"
 ) -> None:
     """Prepare the Alpaca dataset for instruction tuning.
@@ -41,7 +41,7 @@ def prepare(
     train_set, test_set = lima_dataset["train"], lima_dataset["test"]
     train_set, test_set = list(train_set), list(test_set)
 
-    # train_set = [sample for sample in train_set if sample["source"] != "multi_turn"]
+    train_set = [sample for sample in train_set if sample["source"] != "multi_turn"]
     train_set = [sample for sample in train_set]
 
     print(f"train has {len(train_set):,} samples")
@@ -63,19 +63,22 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
     """
     assert 1 <= len(example["conversations"]) <= 2 or (example["source"] == "multi_turn")
 
-    # encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
     instructions = example["conversations"][::2]
     responses = example["conversations"][1::2]
+    has_sys_prompt = True
 
     if len(responses) == 0: # for the test set
-        full_prompt = generate_prompt(instructions[0])
+        full_prompt = generate_prompt(instructions[0], sys=has_sys_prompt)
         encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
         return {**example, "input_ids": encoded_full_prompt}
     else:
         label_list = []
         dialogue_list = []
         for instr, resp in zip(instructions, responses):
-            full_prompt = generate_prompt(instr)
+            if len(dialogue_list) == 0:
+                full_prompt = generate_prompt(instr, sys=has_sys_prompt)
+            else:
+                full_prompt = generate_prompt(instr)
             full_prompt_and_response = full_prompt + resp
             encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
             encoded_full_prompt_and_response = tokenize(tokenizer, full_prompt_and_response, eos=True, max_length=max_length)
@@ -97,11 +100,20 @@ def tokenize(tokenizer: Tokenizer, string: str, max_length: int, eos=True) -> to
     return tokenizer.encode(string, bos=True, eos=eos, max_length=max_length)
 
 
-def generate_prompt(instruction) -> str:
+def generate_prompt(instruction, sys: bool = False) -> str:
     """Generates a standardized message to prompt the model with an instruction, optional input and a
     'response' field."""
 
-    return f"[INST]\n{instruction}\n[/INST]\n"
+    SYS_PROMPT = """<<SYS>>
+You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.
+
+If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.
+<</SYS>>
+"""
+    if sys:
+        return f"[INST]\n{SYS_PROMPT}{instruction}\n[/INST]\n" 
+    else:
+        return f"[INST]\n{instruction}\n[/INST]\n"
     
 
 if __name__ == "__main__":

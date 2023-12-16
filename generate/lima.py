@@ -29,7 +29,7 @@ def main(
     pretrained_path: Path = Path("checkpoints/lit-llama/7B/lit-llama.pth"),
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
     quantize: Optional[str] = None,
-    max_new_tokens: int = 400,
+    max_new_tokens: int = 512,
     top_k: int = 200,
     temperature: float = 0.8,
 ) -> None:
@@ -79,7 +79,11 @@ def main(
     t = time.perf_counter() - t0
 
     output = tokenizer.decode(output)
+    response = output.replace(prompt, "").strip()
+
     print(output)
+    print("\n\n====================\n")
+    print(response)
 
     print(f"\n\nTime for inference: {t:.02f} sec total, {max_new_tokens / t:.02f} tokens/sec", file=sys.stderr)
     if fabric.device.type == "cuda":

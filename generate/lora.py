@@ -29,7 +29,7 @@ def main(
     pretrained_path: Path = Path("checkpoints/lit-llama/7B/lit-llama.pth"),
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
     quantize: Optional[str] = None,
-    max_new_tokens: int = 100,
+    max_new_tokens: int = 512,
     top_k: int = 200,
     temperature: float = 0.8,
 ) -> None:

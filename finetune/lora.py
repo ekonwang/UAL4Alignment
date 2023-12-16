@@ -8,10 +8,12 @@ import sys
 from pathlib import Path
 import os
 import time
+import datetime
 
 import lightning as L
 import numpy as np
 import torch
+import wandb
 
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
@@ -51,6 +53,8 @@ def main(
     tokenizer_path: str = "checkpoints/lit-llama/tokenizer.model",
     out_dir: str = "out/lora/alpaca",
 ):
+    # name with "%y-%m-%d-%H-%M-%S" format
+    wandb.init(project='lima-sft', name='sft-alpaca-lora' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S"))
 
     fabric = L.Fabric(accelerator="cuda", devices=1, precision="bf16-true")
     fabric.launch()
@@ -76,6 +80,7 @@ def main(
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     model, optimizer = fabric.setup(model, optimizer)
     train(fabric, model, optimizer, train_data, val_data, tokenizer_path, out_dir)
+    wandb.finish()
 
     # Save the final LoRA checkpoint at the end of training
     checkpoint = lora_state_dict(model)
@@ -133,6 +138,7 @@ def train(
         dt = time.time() - t0
         if iter_num % log_interval == 0:
             fabric.print(f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
+            wandb.log({"loss": loss.item()})
 
 
 def generate_response(model, instruction, tokenizer_path):

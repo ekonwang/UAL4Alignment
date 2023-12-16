@@ -7,11 +7,13 @@ Note: If you run into a CUDA error "Expected is_sm80 to be true, but got false",
 import sys
 from pathlib import Path
 import os
+import datetime
 import time
 
 import lightning as L
 import numpy as np
 import torch
+import wandb
 
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
@@ -29,7 +31,7 @@ save_interval = 20
 log_interval = 1
 
 # Hyperparameters
-learning_rate = 1e-5
+learning_rate = 3e-4
 batch_size = 64
 micro_batch_size = 1
 gradient_accumulation_iters = batch_size // micro_batch_size
@@ -49,6 +51,8 @@ def main(
     tokenizer_path: str = "checkpoints/lit-llama/tokenizer.model",
     out_dir: str = "out/lora/lima",
 ):
+    # name with "%y-%m-%d-%H-%M-%S" format
+    wandb.init(project='lima-sft', name='sft-lima-lora' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S"))  
 
     fabric = L.Fabric(accelerator="cuda", devices=1, precision="bf16-true")
     fabric.launch()
@@ -74,6 +78,7 @@ def main(
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     model, optimizer = fabric.setup(model, optimizer)
     train(fabric, model, optimizer, train_data, out_dir)
+    wandb.finish()
 
     # Save the final LoRA checkpoint at the end of training
     checkpoint = lora_state_dict(model)
@@ -126,6 +131,7 @@ def train(
         dt = time.time() - t0
         if iter_num % log_interval == 0:
             fabric.print(f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
+            wandb.log({"step": iter_num, "loss": loss.item()})
 
 
 def generate_response(model, instruction, tokenizer_path):
