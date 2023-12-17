@@ -42,7 +42,7 @@ def prepare(
     train_set, test_set = list(train_set), list(test_set)
 
     train_set = [sample for sample in train_set if sample["source"] != "multi_turn"]
-    train_set = [sample for sample in train_set]
+    # train_set = [sample for sample in train_set]
 
     print(f"train has {len(train_set):,} samples")
     print(f"val has {len(test_set):,} samples")
