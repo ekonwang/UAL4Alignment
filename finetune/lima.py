@@ -31,12 +31,12 @@ save_interval = 20
 log_interval = 1
 
 # Hyperparameters
-learning_rate = 3e-4
+learning_rate = 3e-5
 batch_size = 64
 micro_batch_size = 1
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
-max_iters = 1030 * 10 // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs 15
+max_iters = 1030 * 30 // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs 15
 weight_decay = 0.0
 max_seq_length = 1024  # see scripts/prepare_lima.py
 lora_r = 8
@@ -52,7 +52,7 @@ def main(
     out_dir: str = "out/lora/lima",
 ):
     # name with "%y-%m-%d-%H-%M-%S" format
-    wandb.init(project='lima-sft', name='sft-lima-lora' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S"))  
+    wandb.init(project='lima-sft', name=f'sft-lima-lora-{learning_rate} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S"))  
 
     fabric = L.Fabric(accelerator="cuda", devices=1, precision="bf16-true")
     fabric.launch()

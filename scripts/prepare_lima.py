@@ -93,6 +93,14 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
         input_ids = input_ids[:max_length]
         labels = labels[:max_length]
 
+
+        ## --- DEBUG --- ##
+
+        # decoded_labels = tokenizer.decode(labels)
+        # print("==> "); print()
+        # print(decoded_labels)
+        # import pdb; pdb.set_trace()
+
         return {**example, "input_ids": input_ids, "labels": labels}
 
 

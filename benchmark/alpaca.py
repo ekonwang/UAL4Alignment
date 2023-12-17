@@ -18,7 +18,7 @@ from generate import generate
 from lit_llama import Tokenizer, LLaMA
 from lit_llama.lora import lora
 from lit_llama.utils import lazy_load, llama_model_lookup
-from scripts.prepare_lima import generate_prompt
+from scripts.prepare_alpaca import generate_prompt
 
 lora_r = 8
 lora_alpha = 16
@@ -26,7 +26,7 @@ lora_dropout = 0.05
 
 
 def main(
-    lora_path: Path = Path("out/lora/lima/lit-llama-lora-finetuned.pth"),
+    lora_path: Path = Path("out/lora/alpaca/lit-llama-lora-finetuned.pth"),
     pretrained_path: Path = Path("checkpoints/lit-llama/7B/lit-llama.pth"),
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
     quantize: Optional[str] = None,
@@ -34,7 +34,7 @@ def main(
     top_k: int = 200,
     temperature: float = 0.8,
     data_dir: str = "GAIR/lima",
-    output_file: str = f"out/lora/lima/lima-{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json",
+    output_file: str = f"out/lora/alpaca/alpaca-{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json",
 ) -> None:
     
     assert lora_path.is_file()
@@ -72,8 +72,8 @@ def main(
 
     for sample in tqdm(test_dataset):
         inputs = sample["conversations"][0]
-        prompt = generate_prompt(inputs)
-        encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)
+        prompt = generate_prompt(dict(instruction=inputs, input=""))
+        encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device, max_length=max_new_tokens)
 
         t0 = time.perf_counter()
         output = generate(
