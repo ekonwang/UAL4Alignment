@@ -1,10 +1,8 @@
 import openai
 
-def get_gpt_response(params, messages=None, temperature=None):  # model="gpt-4-0314"
-    # while True:
-    #     try:
+def get_gpt_response(params, messages=None, temperature=None):
     resp = openai.ChatCompletion.create(
-        model=params.model_name,  # "gpt-4-0314"
+        model=params.model_name,
         messages=messages,
         temperature=params.temperature if temperature is None else temperature,
         max_tokens=params.max_tokens,

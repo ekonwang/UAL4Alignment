@@ -25,7 +25,7 @@ def main():
             response=response,
         ))
         time.sleep(1)
-        break 
+        break
     
     out_file = f"./out/benchmark/gpt4-{params.data_path.replace('/', '-')}-{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json"
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
