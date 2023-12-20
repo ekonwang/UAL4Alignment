@@ -14,6 +14,7 @@ import lightning as L
 import numpy as np
 import torch
 import wandb
+import torch.nn.functional as F
 
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
@@ -43,7 +44,7 @@ lora_r = 8
 lora_alpha = 16
 lora_dropout = 0.1
 warmup_iters = 100
-
+smooth = 0.1
 
 def main(
     data_dir: str = "data/lima", 
@@ -52,7 +53,7 @@ def main(
     out_dir: str = "out/lora/lima",
 ):
     # name with "%y-%m-%d-%H-%M-%S" format
-    wandb.init(project='lima-sft', name=f'sft_lima_lora_lr-{learning_rate:.2e}_bsz-{batch_size} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S"))  
+    wandb.init(project='lima-sft', name=f'sft_lima_lora_lr-{learning_rate:.2e}_bsz-{batch_size}_ls-{smooth:.2f} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S"))  
 
     fabric = L.Fabric(accelerator="cuda", devices=1, precision="bf16-true")
     fabric.launch()
@@ -77,7 +78,7 @@ def main(
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     model, optimizer = fabric.setup(model, optimizer)
-    train(fabric, model, optimizer, train_data, out_dir)
+    train(fabric, model, optimizer, train_data, out_dir, smoothing=smooth)
     wandb.finish()
 
     # Save the final LoRA checkpoint at the end of training
@@ -91,6 +92,7 @@ def train(
     optimizer: torch.optim.Optimizer,
     train_data: np.ndarray,
     out_dir: str,
+    smoothing: float = 0.0
 ) -> None:
     """The training loop.
 
@@ -111,7 +113,7 @@ def train(
         input_ids, targets = get_batch(fabric, train_data)
         with fabric.no_backward_sync(model, enabled=((iter_num + 1) % gradient_accumulation_iters != 0)):
             logits = model(input_ids)
-            loss = loss_fn(logits, targets)
+            loss = loss_fn(logits, targets, smoothing=smoothing)
             fabric.backward(loss / gradient_accumulation_iters)
 
         if (iter_num + 1) % gradient_accumulation_iters == 0:
@@ -131,7 +133,7 @@ def train(
         dt = time.time() - t0
         if iter_num % log_interval == 0:
             fabric.print(f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
-            wandb.log({"step": iter_num, "loss": loss.item()})
+            wandb.log({"loss": loss.item()})
 
 
 def generate_response(model, instruction, tokenizer_path):
@@ -152,12 +154,36 @@ def generate_response(model, instruction, tokenizer_path):
     return output # output.split("### Response:")[1].strip()
 
 
-def loss_fn(logits, targets):
-    # shift the targets such that output n predicts token n+1
-    # NOTE: we need to learn the shift op here, it is essential for future development
+def label_smooth(labels, classes, smoothing=0.1):
+    """
+    Applies label smoothing to the given labels.
+    
+    Args:
+        labels (Tensor): A tensor containing the labels.
+        classes (int): Total number of classes.
+        smoothing (float): Smoothing factor.
+        
+    Returns:
+        Tensor: A new tensor with smoothed labels.
+    """
+    # Create a tensor with smoothing/num_classes for each label
+    confidence = 1.0 - smoothing
+    smooth_label = torch.full(size=(labels.size(0), labels.size(1), classes), fill_value=smoothing / (classes - 1)).to(labels.device)
+    smooth_label.scatter_(2, labels.unsqueeze(-1), confidence)
+    
+    return smooth_label
+
+
+def loss_fn(logits, targets, smoothing=0.0):
+    targets = label_smooth(targets, logits.size(-1), smoothing=smoothing)
     logits = logits[..., :-1, :].contiguous()
-    targets = targets[..., 1:].contiguous()
-    loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+    targets = targets[..., 1:, :].contiguous()
+
+    logits = logits.view(-1, logits.size(-1))
+    targets = targets.view(-1, targets.size(-1))
+
+    log_preds = F.log_softmax(logits, dim=1)
+    loss = -torch.sum(log_preds * targets) / targets.size(0)
     return loss
     
 
