@@ -20,7 +20,7 @@ IGNORE_INDEX = -1
 def prepare(
     destination_path: Path = Path("data/lima"), 
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
-    max_seq_length: int = 1024,  # 2048 for the setting in the paper (https://arxiv.org/pdf/2305.11206.pdf)
+    max_seq_length: int = 2048,  # 2048 for the setting in the paper (https://arxiv.org/pdf/2305.11206.pdf)
     seed: int = 42,
     mask_inputs: bool = False,  # not as in alpaca-lora, we have multi-turn dialogue
     data_source: str = "GAIR/lima"
@@ -65,7 +65,7 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
 
     instructions = example["conversations"][::2]
     responses = example["conversations"][1::2]
-    has_sys_prompt = True
+    has_sys_prompt = False
 
     if len(responses) == 0: # for the test set
         full_prompt = generate_prompt(instructions[0], sys=has_sys_prompt)
@@ -118,10 +118,15 @@ You are a helpful, respectful and honest assistant. Always answer as helpfully a
 If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.
 <</SYS>>
 """
+    DIALOGUE_PROMPT = f"""
+### User: {instruction}
+
+### Assistant: """
+    
     if sys:
-        return f"[INST]\n{SYS_PROMPT}{instruction}\n[/INST]\n" 
+        return f"""{SYS_PROMPT}{DIALOGUE_PROMPT}"""
     else:
-        return f"[INST]\n{instruction}\n[/INST]\n"
+        return f"""{DIALOGUE_PROMPT}"""
     
 
 if __name__ == "__main__":

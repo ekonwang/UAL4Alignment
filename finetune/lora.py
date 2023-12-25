@@ -46,15 +46,16 @@ lora_alpha = 16
 lora_dropout = 0.05
 warmup_iters = 100
 
+tag='sft-alpaca-lora ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 
 def main(
     data_dir: str = "data/alpaca", 
     pretrained_path: str = "checkpoints/lit-llama/7B/lit-llama.pth",
     tokenizer_path: str = "checkpoints/lit-llama/tokenizer.model",
-    out_dir: str = "out/lora/alpaca",
+    out_dir: str = f"out/lora/alpaca/{tag.replace(' ', '_')}",
 ):
     # name with "%y-%m-%d-%H-%M-%S" format
-    wandb.init(project='lima-sft', name='sft-alpaca-lora' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S"))
+    wandb.init(project='lima-sft', name=tag)
 
     fabric = L.Fabric(accelerator="cuda", devices=1, precision="bf16-true")
     fabric.launch()
@@ -101,6 +102,7 @@ def train(
     Loosely based on the nanoGPT implementation: https://github.com/karpathy/nanoGPT.
     """
     step_count = 0
+    accumulated_loss = 0.0
 
     for iter_num in range(max_iters):
 
@@ -117,11 +119,14 @@ def train(
             logits = model(input_ids)
             loss = loss_fn(logits, targets)
             fabric.backward(loss / gradient_accumulation_iters)
+            accumulated_loss += loss.item()
 
         if (iter_num + 1) % gradient_accumulation_iters == 0:
             optimizer.step()
             optimizer.zero_grad()
             step_count += 1
+            wandb.log({"loss": accumulated_loss / gradient_accumulation_iters})
+            accumulated_loss = 0.0
                 
             if step_count % eval_interval == 0:
                 val_loss = validate(fabric, model, val_data, tokenizer_path)
@@ -138,7 +143,6 @@ def train(
         dt = time.time() - t0
         if iter_num % log_interval == 0:
             fabric.print(f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
-            wandb.log({"loss": loss.item()})
 
 
 def generate_response(model, instruction, tokenizer_path):

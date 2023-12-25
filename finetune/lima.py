@@ -33,27 +33,30 @@ log_interval = 1
 
 # Hyperparameters
 learning_rate = 3e-4
-batch_size = 256
+batch_size = 64
 micro_batch_size = 1
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
-max_iters = 1030 * 15 // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs 15
+max_iters = 1030 * 10 // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs 15
 weight_decay = 0.0
-max_seq_length = 1024  # see scripts/prepare_lima.py
+max_seq_length = 2048  # see scripts/prepare_lima.py
 lora_r = 8
 lora_alpha = 16
 lora_dropout = 0.1
 warmup_iters = 100
-smooth = 0.1
+smooth = 0.0
+
+# tag=f'sft_lima_lora_A800-longctx_micro-{micro_batch_size} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+tag=f'sft_lima_lora_sctx ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 
 def main(
     data_dir: str = "data/lima", 
     pretrained_path: str = "checkpoints/lit-llama/7B/lit-llama.pth",
     tokenizer_path: str = "checkpoints/lit-llama/tokenizer.model",
-    out_dir: str = "out/lora/lima",
+    out_dir: str = f"out/lora/lima/{tag.replace(' ', '_')}",
 ):
     # name with "%y-%m-%d-%H-%M-%S" format
-    wandb.init(project='lima-sft', name=f'sft_lima_lora_lr-{learning_rate:.2e}_bsz-{batch_size}_ls-{smooth:.2f} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S"))  
+    wandb.init(project='lima-sft', name=tag)  
 
     fabric = L.Fabric(accelerator="cuda", devices=1, precision="bf16-true")
     fabric.launch()
@@ -99,6 +102,7 @@ def train(
     Loosely based on the nanoGPT implementation: https://github.com/karpathy/nanoGPT.
     """
     step_count = 0
+    accumulated_loss = 0.0
 
     for iter_num in range(max_iters):
 
@@ -115,11 +119,14 @@ def train(
             logits = model(input_ids)
             loss = loss_fn(logits, targets, smoothing=smoothing)
             fabric.backward(loss / gradient_accumulation_iters)
+            accumulated_loss += loss.item()
 
         if (iter_num + 1) % gradient_accumulation_iters == 0:
             optimizer.step()
             optimizer.zero_grad()
             step_count += 1
+            wandb.log({"loss": accumulated_loss / gradient_accumulation_iters})
+            accumulated_loss = 0.0
 
             fabric.barrier()
 
