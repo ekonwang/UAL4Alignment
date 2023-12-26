@@ -17,7 +17,7 @@ def main():
     with open(params.alpaca_path) as f:
         secondary_list = json.load(f)
     
-    assert(len(primary_list) == len(secondary_list))  # should be the same length
+    # assert(len(primary_list) == len(secondary_list))  # should be the same length
 
     collected_responses = list()
     out_file = f"./out/benchmark/gpt4-judge-{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json"

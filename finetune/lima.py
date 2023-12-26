@@ -38,17 +38,17 @@ micro_batch_size = 1
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
 max_epochs = 60
-max_iters = 1030 * max_epochs // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs 15
+max_iters = 1030 * max_epochs // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs more
 weight_decay = 0.0
 max_seq_length = 512  # see scripts/prepare_lima.py
 lora_r = 8
 lora_alpha = 16
 lora_dropout = 0.1
 warmup_iters = 100
-smooth = 0.0
+smooth = 0.1
 
 # tag=f'sft_lima_lora_A800-longctx_micro-{micro_batch_size} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-tag=f'sft_lima_lora_sctx-{max_seq_length}_micro{micro_batch_size}_epoch{max_epochs} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+tag=f'sft_lima_lora_sctx-{max_seq_length}_micro{micro_batch_size}_epoch{max_epochs}{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 multi_dialogue = 'multi-dialogue'
 tag=tag.replace('micro', f'{multi_dialogue}-micro')
 

@@ -1,4 +1,6 @@
 import sys
+import os
+import json
 import time
 import warnings
 import datetime
@@ -34,12 +36,15 @@ def main(
     top_k: int = 200,
     temperature: float = 0.8,
     data_dir: str = "GAIR/lima",
-    output_file: str = f"out/lora/lima/lima-{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json",
+    output_file: str = None,
 ) -> None:
     
     assert lora_path.is_file()
     assert pretrained_path.is_file()
     assert tokenizer_path.is_file()
+
+    if output_file is None:
+        output_file = f"out/lora/lima/lima-{os.path.basename(str(lora_path)).rsplit('.', 1)[0]}-{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json"
 
     if quantize is not None:
         raise NotImplementedError("Quantization in LoRA is not supported yet")
@@ -100,14 +105,13 @@ def main(
             response=response,
         ))
 
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, "w") as f:
+            json.dump(collected_responses, f, indent=4)
+        print(f"Saved to {output_file}", file=sys.stderr)
+
     if fabric.device.type == "cuda":
         print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB", file=sys.stderr)
-    
-    import json, os
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    with open(output_file, "w") as f:
-        json.dump(collected_responses, f, indent=4)
-    print(f"Saved to {output_file}", file=sys.stderr)
 
 
 if __name__ == "__main__":
