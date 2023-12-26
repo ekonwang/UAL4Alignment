@@ -9,6 +9,8 @@ sys.path.append(str(wd))
 import torch
 import requests
 import json
+
+import numpy as np
 from torch.utils.data import random_split
 from lit_llama.tokenizer import Tokenizer
 from tqdm import tqdm
@@ -23,7 +25,8 @@ def prepare(
     max_seq_length: int = 512,  # 2048 for the setting in the paper (https://arxiv.org/pdf/2305.11206.pdf)
     seed: int = 42,
     mask_inputs: bool = False,  # not as in alpaca-lora, we have multi-turn dialogue
-    data_source: str = "GAIR/lima"
+    data_source: str = "GAIR/lima",
+    score_path: str = None
 ) -> None:
     """Prepare the Alpaca dataset for instruction tuning.
     
@@ -49,6 +52,16 @@ def prepare(
 
     print("Processing train split ...")
     train_set = [prepare_sample(sample, tokenizer, max_seq_length, mask_inputs) for sample in tqdm(train_set)]
+
+    if score_path is not None:
+        with open(score_path) as f:
+            scores = json.load(f)
+            assert len(scores) == len(train_set)
+        scores = np.array(scores) / np.mean(scores) * 0.1
+        scores = scores.tolist()
+        print(scores)
+        train_set = [dict(sample, smooth_value=score) for sample, score in zip(train_set, scores)]
+
     torch.save(train_set, destination_path / "train.pt")
 
     # # 统计 train set 中 label 长度
