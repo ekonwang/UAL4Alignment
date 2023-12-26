@@ -44,7 +44,7 @@ def main(
     assert tokenizer_path.is_file()
 
     if output_file is None:
-        output_file = f"out/lora/lima/lima-{os.path.basename(str(lora_path)).rsplit('.', 1)[0]}-{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json"
+        output_file = f"out/lora/lima/lima-{'-'.join(str(lora_path).split('/')[-2:]).rsplit('.', 1)[0]}-{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json"
 
     if quantize is not None:
         raise NotImplementedError("Quantization in LoRA is not supported yet")
