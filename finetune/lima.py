@@ -190,24 +190,24 @@ def label_smooth(labels, classes, smoothing=0.1):
     return smooth_label.to(original_device)
 
 
-# def loss_fn(logits, targets, smoothing=0.0):
-#     targets = label_smooth(targets, logits.size(-1), smoothing=smoothing)
-#     logits = logits[..., :-1, :].contiguous()
-#     targets = targets[..., 1:, :].contiguous()
-
-#     logits = logits.view(-1, logits.size(-1))
-#     targets = targets.view(-1, targets.size(-1))
-
-#     log_preds = F.log_softmax(logits, dim=1)
-#     loss = -torch.sum(log_preds * targets) / targets.size(0)
-#     return loss
-
 def loss_fn(logits, targets, smoothing=0.0):
-    # shift the targets such that output n predicts token n+1
+    targets = label_smooth(targets, logits.size(-1), smoothing=smoothing)
     logits = logits[..., :-1, :].contiguous()
-    targets = targets[..., 1:].contiguous()
-    loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+    targets = targets[..., 1:, :].contiguous()
+
+    logits = logits.view(-1, logits.size(-1))
+    targets = targets.view(-1, targets.size(-1))
+
+    log_preds = F.log_softmax(logits, dim=1)
+    loss = -torch.sum(log_preds * targets) / targets.size(0)
     return loss
+
+# def loss_fn(logits, targets, smoothing=0.0):
+#     # shift the targets such that output n predicts token n+1
+#     logits = logits[..., :-1, :].contiguous()
+#     targets = targets[..., 1:].contiguous()
+#     loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+#     return loss
     
 
 def get_batch(fabric: L.Fabric, data: list):
