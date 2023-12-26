@@ -116,10 +116,16 @@ def train(
 
         input_ids, targets = get_batch(fabric, train_data)
         with fabric.no_backward_sync(model, enabled=((iter_num + 1) % gradient_accumulation_iters != 0)):
+            # import pdb; pdb.set_trace() # 13218MiB / 24576MiB
             logits = model(input_ids)
+            # import pdb; pdb.set_trace() # 16744MiB / 24576MiB
             loss = loss_fn(logits, targets)
             fabric.backward(loss / gradient_accumulation_iters)
+            # import pdb; pdb.set_trace() # 17018MiB / 24576MiB
             accumulated_loss += loss.item()
+
+            if input_ids.size(1) >= 400:
+                import pdb; pdb.set_trace()
 
         if (iter_num + 1) % gradient_accumulation_iters == 0:
             optimizer.step()

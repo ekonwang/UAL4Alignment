@@ -20,7 +20,7 @@ IGNORE_INDEX = -1
 def prepare(
     destination_path: Path = Path("data/lima"), 
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
-    max_seq_length: int = 2048,  # 2048 for the setting in the paper (https://arxiv.org/pdf/2305.11206.pdf)
+    max_seq_length: int = 512,  # 2048 for the setting in the paper (https://arxiv.org/pdf/2305.11206.pdf)
     seed: int = 42,
     mask_inputs: bool = False,  # not as in alpaca-lora, we have multi-turn dialogue
     data_source: str = "GAIR/lima"
@@ -41,7 +41,7 @@ def prepare(
     train_set, test_set = lima_dataset["train"], lima_dataset["test"]
     train_set, test_set = list(train_set), list(test_set)
 
-    train_set = [sample for sample in train_set if sample["source"] != "multi_turn"]
+    # train_set = [sample for sample in train_set if sample["source"] != "multi_turn"]
     # train_set = [sample for sample in train_set]
 
     print(f"train has {len(train_set):,} samples")
@@ -50,6 +50,18 @@ def prepare(
     print("Processing train split ...")
     train_set = [prepare_sample(sample, tokenizer, max_seq_length, mask_inputs) for sample in tqdm(train_set)]
     torch.save(train_set, destination_path / "train.pt")
+
+    # # 统计 train set 中 label 长度
+    # label_lengths = []
+    # for sample in train_set:
+    #     label_lengths.append(len(sample["labels"]))
+    # # 利用 seaborn distplot 统计
+    # import seaborn as sns
+    # import matplotlib.pyplot as plt
+    # sns.distplot(label_lengths)
+    # plt.title("LIMA data context length distribution")
+    # # save to ./out/fig
+    # plt.savefig('./out/fig/label_lengths.pdf')
 
     print("Processing test split ...")
     test_set = [prepare_sample(sample, tokenizer, max_seq_length, mask_inputs) for sample in tqdm(test_set)]
@@ -92,14 +104,6 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
         labels = torch.cat(label_list, dim=0)
         input_ids = input_ids[:max_length]
         labels = labels[:max_length]
-
-
-        ## --- DEBUG --- ##
-
-        # decoded_labels = tokenizer.decode(labels)
-        # print("==> "); print()
-        # print(decoded_labels)
-        # import pdb; pdb.set_trace()
 
         return {**example, "input_ids": input_ids, "labels": labels}
 

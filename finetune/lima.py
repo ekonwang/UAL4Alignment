@@ -37,9 +37,10 @@ batch_size = 64
 micro_batch_size = 1
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
-max_iters = 1030 * 10 // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs 15
+max_epochs = 60
+max_iters = 1030 * max_epochs // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs 15
 weight_decay = 0.0
-max_seq_length = 2048  # see scripts/prepare_lima.py
+max_seq_length = 512  # see scripts/prepare_lima.py
 lora_r = 8
 lora_alpha = 16
 lora_dropout = 0.1
@@ -47,7 +48,9 @@ warmup_iters = 100
 smooth = 0.0
 
 # tag=f'sft_lima_lora_A800-longctx_micro-{micro_batch_size} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-tag=f'sft_lima_lora_sctx ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+tag=f'sft_lima_lora_sctx-{max_seq_length}_micro{micro_batch_size}_epoch{max_epochs} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+multi_dialogue = 'multi-dialogue'
+tag=tag.replace('micro', f'{multi_dialogue}-micro')
 
 def main(
     data_dir: str = "data/lima", 
@@ -66,7 +69,8 @@ def main(
         os.makedirs(out_dir, exist_ok=True)
 
     train_data = load_datasets(data_dir=data_dir)
-
+    if multi_dialogue in tag:
+        assert len(train_data) == 1030  # assert the 30 multi-turn dialogues are included
     config = LLaMAConfig.from_name("7B")
     config.block_size = max_seq_length
 
@@ -128,9 +132,8 @@ def train(
             wandb.log({"loss": accumulated_loss / gradient_accumulation_iters})
             accumulated_loss = 0.0
 
-            fabric.barrier()
-
             if step_count % save_interval == 0:
+                fabric.barrier()
                 print(f"Saving LoRA weights to {out_dir}")
                 # We are only saving the LoRA weights
                 # TODO: Provide a function/script to merge the LoRA weights with pretrained weights
@@ -140,7 +143,6 @@ def train(
         dt = time.time() - t0
         if iter_num % log_interval == 0:
             fabric.print(f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
-            wandb.log({"loss": loss.item()})
 
 
 def generate_response(model, instruction, tokenizer_path):
@@ -175,22 +177,36 @@ def label_smooth(labels, classes, smoothing=0.1):
     """
     # Create a tensor with smoothing/num_classes for each label
     confidence = 1.0 - smoothing
-    smooth_label = torch.full(size=(labels.size(0), labels.size(1), classes), fill_value=smoothing / (classes - 1)).to(labels.device)
-    smooth_label.scatter_(2, labels.unsqueeze(-1), confidence)
-    
-    return smooth_label
 
+    # offload for saving some GPU memory
+    original_device = labels.device
+    labels = labels.cpu()
+    smooth_label = torch.full(size=(labels.size(0), labels.size(1), classes), fill_value=smoothing / (classes - 1)).to(labels.device)
+    # set labels = 0 where labels == -1, in case of CUDA insertion error
+    labels_copy = labels.clone()
+    labels_copy[labels_copy == -1] = 0
+    smooth_label.scatter_(2, labels_copy.unsqueeze(-1), confidence)
+    
+    return smooth_label.to(original_device)
+
+
+# def loss_fn(logits, targets, smoothing=0.0):
+#     targets = label_smooth(targets, logits.size(-1), smoothing=smoothing)
+#     logits = logits[..., :-1, :].contiguous()
+#     targets = targets[..., 1:, :].contiguous()
+
+#     logits = logits.view(-1, logits.size(-1))
+#     targets = targets.view(-1, targets.size(-1))
+
+#     log_preds = F.log_softmax(logits, dim=1)
+#     loss = -torch.sum(log_preds * targets) / targets.size(0)
+#     return loss
 
 def loss_fn(logits, targets, smoothing=0.0):
-    targets = label_smooth(targets, logits.size(-1), smoothing=smoothing)
+    # shift the targets such that output n predicts token n+1
     logits = logits[..., :-1, :].contiguous()
-    targets = targets[..., 1:, :].contiguous()
-
-    logits = logits.view(-1, logits.size(-1))
-    targets = targets.view(-1, targets.size(-1))
-
-    log_preds = F.log_softmax(logits, dim=1)
-    loss = -torch.sum(log_preds * targets) / targets.size(0)
+    targets = targets[..., 1:].contiguous()
+    loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
     return loss
     
 
