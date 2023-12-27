@@ -20,7 +20,7 @@ def main():
     # assert(len(primary_list) == len(secondary_list))  # should be the same length
 
     collected_responses = list()
-    out_file = f"./out/benchmark/gpt4-judge-{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json"
+    out_file = f"./out/benchmark/gpt4_judge_{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}_{params.tag}.json"
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
 
     pairs = list(zip(primary_list, secondary_list))
@@ -64,6 +64,7 @@ def parse_args():
     aa("--first_path", type=str, default="./out/lora/alpaca/alpaca-23-12-16-16-12-45.json")
     aa("--second_path", type=str, default="./out/lora/lima/lima-23-12-16-16-12-35.json")
     aa("--max_turns", type=int, default=None)
+    aa("--tag", type=str, required=True)
     return parser.parse_args()
 
 
