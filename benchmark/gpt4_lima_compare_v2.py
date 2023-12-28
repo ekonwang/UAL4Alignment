@@ -25,8 +25,8 @@ def main():
 
     pairs = list(zip(primary_list, secondary_list))
     if params.max_turns is not None:
-        paris = pairs[:params.max_turns]
-    for p_dict, s_dict in tqdm():
+        pairs = pairs[:params.max_turns]
+    for p_dict, s_dict in tqdm(pairs):
         assert(p_dict["inputs"] == s_dict["inputs"])
         
         question = p_dict["inputs"]
@@ -43,6 +43,7 @@ def main():
             prompt=prompt,
             response=response,
         ))
+        print(response)
         
         time.sleep(1)
         
@@ -69,23 +70,31 @@ def parse_args():
 
 
 prompt_temp = """
-As the judge in this scenario, your role is to critically evaluate two responses provided in relation to a specific question. Your evaluation should be based on the criteria of instruction following, hallucination, and informativeness. The response that performs better in these areas should be deemed as better.
+As the judge in this scenario, your role is to critically evaluate two responses provided in relation to a specific question. Your evaluation should be based on the following criteria. The response that performs better in these areas should be deemed as better.
 
-**Evaluation Criteria:**
+**Evaluation Guidelines:**
 
-- **Instruction Following:** The response should directly and effectively address the question or task given without veering off-topic or providing unrelated information. It should align with the intention behind the question.
+1. **Adherence to Instructions:** The response must address the posed question or task directly and efficaciously, ensuring that the content remains on topic and eschews the inclusion of extraneous or irrelevant material. It must accurately reflect the original intent of the inquiry.
 
-- **Hallucination:** The response must be free from fabrications and inaccuracies. It should provide information that is correct and verifiable, using the details provided in the question appropriately without introducing false or misleading content.
+2. **Helpfulness**: The response should be informative and useful, providing a helpful to the question. It should be relevant to the question and provide a response that is both accurate and complete.
 
-- **Informativeness:** Beyond being accurate, the response should offer enriched and valuable information that contributes to a deep understanding of the topic or provides practical and actionable solutions.
+3. **Absence of Hallucination:** The response should be devoid of any fictitious or erroneous statements. It is imperative that the information provided is factual, corroborable, and makes appropriate use of the details presented in the question, without introducing any deceptive or spurious elements.
 
-Based on these criteria, assess the following two answers to determine if:
+These criteria are ordered by their relative significance, with the foremost criterion being the most critical and the subsequent ones progressively less so. Using these guidelines, please evaluate the ensuing two answers to ascertain which is preferable:
 
-1. The first answer is significantly better than the second one.
-2. Neither answer is significantly better or worse than the other.
-3. The first answer is significantly worse than the second one.
+1. The first answer is better than the second one.
+2. Neither the first answer is better nor worse than the other.
+3. The first answer is worse than the second one.
 
-Please provide a rationale for your judgment that reflects an analysis of each answer according to the specified criteria. And end your response with a clear choice of your judgment from **1**, **2** and **3**.
+Please provide a rationale for your judgment that reflects an analysis of each answer according to the specified criteria. And end your response with a clear choice of your judgment from **1**, **2** and **3**. In the following format:
+
+```
+### Rationale:
+[...]
+
+### Judgment:
+[...]
+```
 
 
 ### Question:
