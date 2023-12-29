@@ -20,7 +20,7 @@ def main():
     # assert(len(primary_list) == len(secondary_list))  # should be the same length
 
     collected_responses = list()
-    out_file = f"./out/benchmark/gpt4_judge_{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}_{params.tag}.json"
+    out_file = f"./out/benchmark/gpt4_judge/gpt4_judge_{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}_{params.tag}.json"
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
 
     pairs = list(zip(primary_list, secondary_list))

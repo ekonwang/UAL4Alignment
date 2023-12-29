@@ -37,7 +37,7 @@ batch_size = 64
 micro_batch_size = 1
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
-max_epochs = 15
+max_epochs = 30
 max_iters = 1030 * max_epochs // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs more
 weight_decay = 0.0
 max_seq_length = 512  # see scripts/prepare_lima.py
