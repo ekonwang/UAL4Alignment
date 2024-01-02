@@ -8,3 +8,4 @@ bitsandbytes  # quantization.py
 datasets  # evaluate.py
 zstandard  # prepare_redpajama.py
 openai # benmark/gpt4*.py
+seaborn # for visualizing results
