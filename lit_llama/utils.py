@@ -328,15 +328,21 @@ class LazyLoadingUnpickler(pickle.Unpickler):
 
 class lazy_load:
     def __init__(self, fn):
-        self.zf = torch._C.PyTorchFileReader(str(fn))
-        with BytesIO(self.zf.get_record("data.pkl")) as pkl:
-            mup = LazyLoadingUnpickler(pkl, self)
-            self.sd = mup.load()
+        self.fn = fn
+        if fn is not None:
+            self.zf = torch._C.PyTorchFileReader(str(fn))
+            with BytesIO(self.zf.get_record("data.pkl")) as pkl:
+                mup = LazyLoadingUnpickler(pkl, self)
+                self.sd = mup.load()
 
     def __enter__(self):
+        if self.fn is None:
+            return None
         return self.sd
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.fn is None:
+            return None
         del self.zf  # I don't think there is a way to force closing...
         self.zf = None
 

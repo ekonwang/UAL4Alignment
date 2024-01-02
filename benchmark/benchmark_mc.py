@@ -27,18 +27,18 @@ lora_alpha = 16
 lora_dropout = 0.05
 
 data_configs = {
-    "ARC": ("ai2_arc", "ARC-Challenge", "test"),
-    "MMLU": ("cais/mmlu", "all", "test"),
+    "ARC": ("ai2_arc", "ARC-Challenge", "validation"),
+    "MMLU": ("cais/mmlu", "all", "validation"),  # https://huggingface.co/datasets/cais/mmlu
     "TruthfulQA": ("truthful_qa", "multiple_choice", "validation"),
 }
 choice_configs = [c for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
 
 def main(
-    lora_path: Path = Path("out/lora/lima/lit-llama-lora-finetuned.pth"),
+    lora_path: Path = None,
     pretrained_path: Path = Path("checkpoints/lit-llama/7B/lit-llama.pth"),
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
     quantize: Optional[str] = None,
-    max_new_tokens: int = 1024,
+    max_tokens: int = 1024,
     top_k: int = 200,
     temperature: float = 0.8,
     data_dir: str = "ARC",
@@ -46,14 +46,18 @@ def main(
     output_file: str = None,
 ) -> None:
     
-    assert lora_path.is_file()
+    # assert lora_path.is_file()
     assert pretrained_path.is_file()
     assert tokenizer_path.is_file()
     assert data_dir in data_configs.keys()
     assert shot_num <= 32
 
-    if output_file is None:
-        output_file = f"out/benchmark/multi-choices/lima_{data_dir}/{'-'.join(str(lora_path).split('/')[-2:]).rsplit('.', 1)[0]}_{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json"
+    lora_signature = f"{'-'.join(str(lora_path).split('/')[-2:]).rsplit('.', 1)[0]}" if lora_path is not None else "pretrained-baseline"
+    output_file = Path(f"out/benchmark/multi-choices/"\
+                    f"lima_{data_dir}/"\
+                    f"{lora_signature}_"\
+                    f"{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json")
+    output_file.parent.mkdir(parents=True, exist_ok=True)
 
     if quantize is not None:
         raise NotImplementedError("Quantization in LoRA is not supported yet")
@@ -73,7 +77,8 @@ def main(
             # 1. Load the pretrained weights
             model.load_state_dict(pretrained_checkpoint, strict=False)
             # 2. Load the fine-tuned lora weights
-            model.load_state_dict(lora_checkpoint, strict=False)
+            if lora_checkpoint is not None:
+                model.load_state_dict(lora_checkpoint, strict=False)
 
     print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
 
@@ -83,20 +88,25 @@ def main(
 
     collected_responses = list()
     dataset = data_preprocess(data_dir)
-    test_dataset, icl_dataset = dataset[:len(dataset)-shot_num], dataset[-shot_num:]
+    test_dataset, icl_dataset = dataset, []
 
+    if shot_num > 0:
+        test_dataset, icl_dataset = dataset[:len(dataset)-shot_num], dataset[-shot_num:]
+
+    acc_cnt = 0
+    tot_cnt = 0 
     for sample in tqdm(test_dataset):
         return_dict = generate_inputs(sample, icl_dataset)
-        prompt = generate_prompt(return_dict['inputs'])
-
+        # prompt = generate_prompt(return_dict['inputs'])
+        prompt = return_dict['inputs']
         # output = model_inference(model, tokenizer, prompt, max_new_tokens, top_k, temperature)
-        # output = tokenizer.decode(output)
-        # response = output.replace(prompt, "").strip()
-        response = model_fast_inference(model, tokenizer, prompt, num_choices=return_dict['num_choices'])
+        response = model_fast_inference(model, tokenizer, prompt, num_choices=return_dict['num_choices'], max_tokens=max_tokens)
 
-        print(prompt)
-        print(response)
-        print("\n\n====================\n")
+        acc_cnt += 1 if response == sample['answer'] else 0
+        tot_cnt += 1
+
+        print(prompt + response)
+        print("\n\n========== {}/{} ==========\n".format(acc_cnt, tot_cnt))
 
         collected_responses.append(dict(
             answer=sample['answer'],
@@ -104,14 +114,16 @@ def main(
             prompt=prompt,
             response=response,
         ))
-
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
-        with open(output_file, "w") as f:
-            json.dump(collected_responses, f, indent=4)
-        print(f"Saved to {output_file}", file=sys.stderr)
+        
 
     if fabric.device.type == "cuda":
         print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB", file=sys.stderr)
+        
+    output_file = str(output_file).replace(".json", f"_acc-{100*acc_cnt/tot_cnt:.02f}.json")
+
+    with open(output_file, "w") as f:
+        json.dump(collected_responses, f, indent=4)
+    print(f"Saved to {output_file}", file=sys.stderr)
 
 
 def model_inference(model, tokenizer, prompt, max_new_tokens, top_k, temperature):
@@ -129,32 +141,41 @@ def model_inference(model, tokenizer, prompt, max_new_tokens, top_k, temperature
     model.reset_cache()
     t = time.perf_counter() - t0
     print(f"\n\nTime for inference: {t:.02f} sec total, {(len(output) - len(encoded)) / t:.02f} tokens/sec", file=sys.stderr)
-    return output
+    output = tokenizer.decode(output)
+    response = output.replace(prompt, "").strip()
+    return response
 
 
-def model_fast_inference(model, tokenizer, prompt, num_choices):
+def model_fast_inference(model, tokenizer, prompt, num_choices, max_tokens):
     # TODO: implement fast inference by looking into logit probability of choices such as 'A', 'B', 'C' and 'D'
     # inference code: https://github.com/hendrycks/test/blob/master/evaluate_flan.py#L72C9-L72C9
-    encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device).unsqueeze(0)
+    encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)[:max_tokens].unsqueeze(0)
     choices = choice_configs[:num_choices]
-    choices_idx = torch.tensor([tokenizer.encode(c, bos=False)[0] for c in choices]).unsqueeze(0)
+    choices_idx = torch.tensor([tokenizer.encode(c, bos=False)[0] for c in choices], device=model.device, dtype=torch.long)
+    
+    try:
+        logits = model(encoded)[0, -1] # size is (V)
+    except Exception as e:
+        print(encoded.shape)
+        print(e)
+        import pdb; pdb.set_trace()
 
-    logits = model(encoded) # size is (1, V)
-    gathered = torch.gather(logits, 1, choices_idx)
+    gathered = torch.gather(logits, 0, choices_idx)
     model_choice = choices[torch.argmax(gathered).item()]
     return model_choice
 
 
 def wrap_input(sample_dict, include_answer=False):
     question_with_answer_temp = f"""
-    # Question: {sample_dict['question']}
-    
-    # Choices: 
-    """ 
+# Question: {sample_dict['question']}
+
+# Choices: 
+""" 
     for idx, choice in zip(choice_configs, sample_dict['choices']):
         question_with_answer_temp += f"{idx}. {choice}\n"
+    question_with_answer_temp += f"\n# Answer: "
     if include_answer:
-        question_with_answer_temp += f"\n# Answer: {sample_dict['answer']}\n"
+        question_with_answer_temp += f"{sample_dict['answer']}\n"
     return question_with_answer_temp
 
 
@@ -166,6 +187,11 @@ def generate_inputs(sample_dict, icl_dataset):
     for icl_sample in icl_dataset:
         prompt += wrap_input(icl_sample, include_answer=True)
     prompt += wrap_input(sample_dict, include_answer=False)
+
+    return dict(
+        inputs=prompt,
+        num_choices=len(sample_dict['choices']),
+    )
 
 
 def data_preprocess(data_dir):
@@ -187,8 +213,8 @@ def data_preprocess(data_dir):
         elif data_dir == "MMLU":
             sample_dict = dict(
                 question=sample["question"],
-                choices=sample["choices"]["text"],
-                answer=sample["answerKey"],
+                choices=sample["choices"],
+                answer=label_map[sample["answer"]],
             )
         elif data_dir == "TruthfulQA":
             sample_dict = dict(
