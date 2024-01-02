@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import time
 
 
 def main(
@@ -22,6 +23,8 @@ def main(
         os.system(cmd)
         cmd = f'python benchmark/benchmark_mc.py --data_dir MMLU --lora_path {ckpt}'
         os.system(cmd)
+
+        time.sleep(3)
 
 
 if __name__ == '__main__':
