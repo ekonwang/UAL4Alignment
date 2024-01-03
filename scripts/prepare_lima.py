@@ -57,28 +57,26 @@ def prepare(
         with open(score_path) as f:
             scores = json.load(f)
             assert len(scores) == len(train_set)
-        scores = np.array(scores) / np.mean(scores) * 0.1
-        scores = scores.tolist()
-        print(scores)
+        scores = make_score_dist(scores, target_mean=0.1)
         train_set = [dict(sample, smooth_value=score) for sample, score in zip(train_set, scores)]
 
     torch.save(train_set, destination_path / "train.pt")
 
-    # # 统计 train set 中 label 长度
-    # label_lengths = []
-    # for sample in train_set:
-    #     label_lengths.append(len(sample["labels"]))
-    # # 利用 seaborn distplot 统计
-    # import seaborn as sns
-    # import matplotlib.pyplot as plt
-    # sns.distplot(label_lengths)
-    # plt.title("LIMA data context length distribution")
-    # # save to ./out/fig
-    # plt.savefig('./out/fig/label_lengths.pdf')
-
     print("Processing test split ...")
     test_set = [prepare_sample(sample, tokenizer, max_seq_length, mask_inputs) for sample in tqdm(test_set)]
     torch.save(test_set, destination_path / "test.pt")
+
+
+def make_score_dist(raw_scores, target_mean=0.1, max_values=0.99):
+    assert target_mean <= max_values
+
+    scores = np.array(raw_scores)
+    while(abs(np.mean(scores) - target_mean) >= 0.001):
+        scores = scores / np.mean(scores) * target_mean
+        scores = np.clip(scores, scores.min(), max_values)
+        print(np.mean(scores))    
+    
+    return scores.tolist()
 
 
 def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_inputs: bool = True) -> dict:
