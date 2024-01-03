@@ -30,6 +30,7 @@ data_configs = {
     "ARC": ("ai2_arc", "ARC-Challenge", "validation"),
     "MMLU": ("cais/mmlu", "all", "validation"),  # https://huggingface.co/datasets/cais/mmlu
     "TruthfulQA": ("truthful_qa", "multiple_choice", "validation"),
+    "HellaSwag": ("Rowan/hellaswag", None, "validation"),  # https://huggingface.co/datasets/Rowan/hellaswag
 }
 choice_configs = [c for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
 
@@ -55,6 +56,7 @@ def main(
     lora_signature = f"{'-'.join(str(lora_path).split('/')[-2:]).rsplit('.', 1)[0]}" if lora_path is not None else "pretrained-baseline"
     output_file = Path(f"out/benchmark/multi-choices/"\
                     f"lima_{data_dir}/"\
+                    f"{shot_num}-shot/"\
                     f"{lora_signature}_"\
                     f"{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json")
     output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -149,7 +151,7 @@ def model_inference(model, tokenizer, prompt, max_new_tokens, top_k, temperature
 def model_fast_inference(model, tokenizer, prompt, num_choices, max_tokens):
     # TODO: implement fast inference by looking into logit probability of choices such as 'A', 'B', 'C' and 'D'
     # inference code: https://github.com/hendrycks/test/blob/master/evaluate_flan.py#L72C9-L72C9
-    encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)[:max_tokens].unsqueeze(0)
+    encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)[-max_tokens:].unsqueeze(0)
     choices = choice_configs[:num_choices]
     choices_idx = torch.tensor([tokenizer.encode(c, bos=False)[0] for c in choices], device=model.device, dtype=torch.long)
     
@@ -221,6 +223,12 @@ def data_preprocess(data_dir):
                 question=sample["question"],
                 choices=sample["mc1_targets"]["choices"],
                 answer='A',  # becuase the answer is always the first choice, please refer https://huggingface.co/datasets/truthful_qa/viewer/multiple_choice/validation?p=8&row=800
+            )
+        elif data_dir == "HellaSwag":
+            sample_dict = dict(
+                question=sample["ctx"],
+                choices=sample["endings"],
+                answer=label_map[int(sample["label"])],
             )
         else:
             raise ValueError(f"Unknown data_dir: {data_dir}")

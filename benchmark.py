@@ -14,17 +14,18 @@ def main(
     ckpts = [ckpt_path / c for c in ckpts]
 
     # run bash command
-    for ckpt in ckpts:
-        print(ckpt)
-        print()
-        cmd = f'python benchmark/benchmark_mc.py --data_dir ARC --lora_path {ckpt} --shot_num 5'
-        os.system(cmd)
-        cmd = f'python benchmark/benchmark_mc.py --data_dir TruthfulQA --lora_path {ckpt}'
-        os.system(cmd)
-        cmd = f'python benchmark/benchmark_mc.py --data_dir MMLU --lora_path {ckpt}'
-        os.system(cmd)
+    for shot_num in range(0, 6):
+        for ckpt in ckpts:
+            print(ckpt)
+            print()
+            cmd = f'python benchmark/benchmark_mc.py --data_dir ARC --lora_path {ckpt} --shot_num {shot_num}'
+            os.system(cmd)
+            cmd = f'python benchmark/benchmark_mc.py --data_dir TruthfulQA --lora_path {ckpt} --shot_num {shot_num}'
+            os.system(cmd)
+            cmd = f'python benchmark/benchmark_mc.py --data_dir MMLU --lora_path {ckpt} --shot_num {shot_num}'
+            os.system(cmd)
 
-        time.sleep(3)
+            time.sleep(3)
 
 
 if __name__ == '__main__':
