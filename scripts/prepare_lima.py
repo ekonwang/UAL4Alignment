@@ -99,7 +99,8 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
     else:
         label_list = []
         dialogue_list = []
-        for instr, resp in zip(instructions, responses):
+
+        for instr, resp in zip(instructions, responses): # iteratively concatenate the dialogue turns
             if len(dialogue_list) == 0:
                 full_prompt = generate_prompt(instr, sys=has_sys_prompt)
             else:
@@ -107,6 +108,7 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
             full_prompt_and_response = full_prompt + resp
             encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
             encoded_full_prompt_and_response = tokenize(tokenizer, full_prompt_and_response, eos=True, max_length=max_length)
+
             label = encoded_full_prompt_and_response.clone()
             if mask_inputs:
                 label[:len(encoded_full_prompt)] = IGNORE_INDEX
@@ -129,11 +131,8 @@ def generate_prompt(instruction, sys: bool = False) -> str:
     """Generates a standardized message to prompt the model with an instruction, optional input and a
     'response' field."""
 
-    SYS_PROMPT = """<<SYS>>
-You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.
-
-If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.
-<</SYS>>
+    # vicuna style: https://github.com/lm-sys/FastChat/blob/main/docs/vicuna_weights_version.md#prompt-template
+    SYS_PROMPT = """A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions.
 """
     DIALOGUE_PROMPT = f"""
 ### User: {instruction}
