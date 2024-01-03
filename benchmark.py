@@ -14,7 +14,7 @@ def main(
     ckpts = [ckpt_path / c for c in ckpts]
 
     # run bash command
-    for shot_num in range(0, 6):
+    for shot_num in range(5, -1, -1):
         for ckpt in ckpts:
             print(ckpt)
             print()
