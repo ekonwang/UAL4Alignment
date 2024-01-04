@@ -23,7 +23,6 @@ sys.path.append(str(wd))
 from generate import generate
 from lit_llama.lora import mark_only_lora_as_trainable, lora, lora_state_dict
 from lit_llama.model import LLaMA, LLaMAConfig
-from lit_llama.tokenizer import Tokenizer
 from scripts.prepare_alpaca import generate_prompt
 
 
@@ -37,7 +36,7 @@ batch_size = 64
 micro_batch_size = 1
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
-max_epochs = 60
+max_epochs = 15
 max_iters = 1030 * max_epochs // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs more
 weight_decay = 0.0
 max_seq_length = 512  # see scripts/prepare_lima.py
@@ -45,18 +44,20 @@ lora_r = 8
 lora_alpha = 16
 lora_dropout = 0.1
 warmup_iters = 100
-smooth = 0.1
-
-tag=f'sft_lima_lora_sctx-{max_seq_length}_micro{micro_batch_size}_epoch{max_epochs}{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-multi_dialogue = 'multi-dialogue'
-tag=tag.replace('micro', f'{multi_dialogue}-micro')
 
 def main(
     data_dir: str = "data/lima", 
     pretrained_path: str = "checkpoints/lit-llama/7B/lit-llama.pth",
-    tokenizer_path: str = "checkpoints/lit-llama/tokenizer.model",
-    out_dir: str = f"out/lora/lima/{tag.replace(' ', '_')}",
+    out_dir: str = None,
+    smooth:float = 0.0,
 ):
+    tag=f'sft_lima_lora_sctx-{max_seq_length}_micro{micro_batch_size}_epoch{max_epochs}{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+    multi_dialogue = 'multi-dialogue'
+    tag=tag.replace('micro', f'{multi_dialogue}-micro')
+
+    if out_dir is None:
+        out_dir = f"out/lora/lima/{tag.replace(' ', '_')}"
+
     # name with "%y-%m-%d-%H-%M-%S" format
     wandb.init(project='lima-sft', name=tag)  
 
@@ -117,10 +118,10 @@ def train(
 
         t0 = time.time()
 
-        input_ids, targets = get_batch(fabric, train_data)
+        return_dict = get_batch(fabric, train_data)
         with fabric.no_backward_sync(model, enabled=((iter_num + 1) % gradient_accumulation_iters != 0)):
-            logits = model(input_ids)
-            loss = loss_fn(logits, targets, smoothing=smoothing)
+            logits = model(return_dict['input_ids'])
+            loss = loss_fn(logits, return_dict['labels'], smoothing=smoothing)
             fabric.backward(loss / gradient_accumulation_iters)
             accumulated_loss += loss.item()
 
@@ -144,24 +145,6 @@ def train(
             fabric.print(f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
 
 
-def generate_response(model, instruction, tokenizer_path):
-    tokenizer = Tokenizer(tokenizer_path)
-    sample = {"instruction": instruction, "input": ""}
-    prompt = instruction
-    if instruction_tuning:
-        prompt = generate_prompt(sample)
-    encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)
-
-    output = generate(
-        model,
-        idx=encoded,
-        max_seq_length=max_seq_length,
-        max_new_tokens=100,
-    )
-    output = tokenizer.decode(output)
-    return output # output.split("### Response:")[1].strip()
-
-
 def label_smooth(labels, classes, smoothing=0.1):
     """
     Applies label smoothing to the given labels.
@@ -174,17 +157,32 @@ def label_smooth(labels, classes, smoothing=0.1):
     Returns:
         Tensor: A new tensor with smoothed labels.
     """
-    # Create a tensor with smoothing/num_classes for each label
-    confidence = 1.0 - smoothing
-
-    # offload for saving some GPU memory
     original_device = labels.device
-    labels = labels.cpu()
-    smooth_label = torch.full(size=(labels.size(0), labels.size(1), classes), fill_value=smoothing / (classes - 1)).to(labels.device)
-    # set labels = 0 where labels == -1, in case of CUDA insertion error
-    labels_copy = labels.clone()
-    labels_copy[labels_copy == -1] = 0
-    smooth_label.scatter_(2, labels_copy.unsqueeze(-1), confidence)
+    if isinstance(smoothing, list):
+        assert len(smoothing) == labels.size(0)
+
+        labels_copy = labels.clone()
+        labels_copy[labels_copy == -1] = 0
+
+        smoothed_list = []
+        for i, smooth_value in enumerate(smoothing):
+            confidence = 1.0 - smooth_value
+            smooth_label = torch.full(size=(labels.size(1), classes), fill_value=smooth_value / (classes - 1)).to(labels.device)
+            smooth_label.scatter_(1, labels_copy[i].unsqueeze(-1), confidence)
+            smoothed_list.append(smooth_label)
+        smooth_label = torch.stack(smoothed_list)
+
+    else:
+        # Create a tensor with smoothing/num_classes for each label
+        confidence = 1.0 - smoothing
+
+        # offload for saving some GPU memory
+        labels = labels.cpu()
+        smooth_label = torch.full(size=(labels.size(0), labels.size(1), classes), fill_value=smoothing / (classes - 1)).to(labels.device)
+        # set labels = 0 where labels == -1, in case of CUDA insertion error
+        labels_copy = labels.clone()
+        labels_copy[labels_copy == -1] = 0
+        smooth_label.scatter_(2, labels_copy.unsqueeze(-1), confidence)
     
     return smooth_label.to(original_device)
 
@@ -199,13 +197,13 @@ def loss_fn(logits, targets_, smoothing=0.0):
     targets = targets.view(-1, targets.size(-1))
 
     real_mask = (targets_ != -1)
-    mask = real_mask.unsqueeze(-1).expand(-1, -1, logits.size(-1))
+    mask = real_mask.unsqueeze(-1).expand(-1, -1, logits.size(-1))[..., 1:, :]
     mask = mask.view(-1, logits.size(-1)).float()
 
     log_preds = F.log_softmax(logits, dim=1)
     log_preds = log_preds * mask
     loss = -torch.sum(log_preds * targets) / real_mask.float().sum()
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
     return loss
 
 
@@ -214,6 +212,9 @@ def get_batch(fabric: L.Fabric, data: list):
 
     input_ids = [data[i]["input_ids"].type(torch.int64) for i in ix]
     labels = [data[i]["labels"].type(torch.int64) for i in ix]
+    smooth_values = None
+    if "smooth_value" in data[0].keys():
+        smooth_values = [data[i]["smooth_value"] for i in ix]
 
     max_len = max(len(s) for s in input_ids)
 
@@ -225,7 +226,7 @@ def get_batch(fabric: L.Fabric, data: list):
     x = torch.stack([pad_right(x, pad_id=0) for x in input_ids])
     y = torch.stack([pad_right(x, pad_id=-1) for x in labels])
     x, y = fabric.to_device((x.pin_memory(), y.pin_memory()))
-    return x, y
+    return {"input_ids": x, "labels": y, "smooth_values": smooth_values}
 
 
 def load_datasets(data_dir):
