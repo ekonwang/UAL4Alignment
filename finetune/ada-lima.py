@@ -47,19 +47,25 @@ lora_dropout = 0.1
 warmup_iters = 100
 smooth = 0.1
 
-# tag=f'sft_lima_lora_A800-longctx_micro-{micro_batch_size} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-tag=f'sft_ada-lima_lora_sctx-{max_seq_length}{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-multi_dialogue = 'multi-dialogue'
-tag=tag.replace('micro', f'{multi_dialogue}-micro')
 
 def main(
     data_dir: str = "data/lima", 
     pretrained_path: str = "checkpoints/lit-llama/7B/lit-llama.pth",
     tokenizer_path: str = "checkpoints/lit-llama/tokenizer.model",
-    out_dir: str = f"out/lora/lima/{tag.replace(' ', '_')}",
+    out_dir: str = None,
 ):
-    # name with "%y-%m-%d-%H-%M-%S" format
-    wandb.init(project='lima-sft', name=tag)  
+    
+    assert "ls" in data_dir
+
+    tag=f'sft_ada-lima_lora_sctx-{max_seq_length}' + \
+        ("" if smooth == 0.0 else f"_{data_dir.split('/')[-1]} ") + \
+        datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+    multi_dialogue = 'multi-dialogue'
+    tag=tag.replace('micro', f'{multi_dialogue}-micro')
+
+    wandb.init(project='lima-sft', name=tag)
+    if out_dir is None:
+        out_dir = f"out/lora/lima/{tag.replace(' ', '_')}"
 
     fabric = L.Fabric(accelerator="cuda", devices=1, precision="bf16-true")
     fabric.launch()
