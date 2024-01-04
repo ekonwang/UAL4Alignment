@@ -3,12 +3,17 @@ import argparse
 import time
 import datetime
 import os
+import sys
 
-import openai
 from tqdm import tqdm
 from datasets import load_dataset
+from pathlib import Path
 
-from utils import get_gpt_response
+# support running without installing as a package
+wd = Path(__file__).parent.parent.parent.resolve()
+sys.path.append(str(wd))
+
+from benchmark.utils import get_gpt_response
 
 
 def main():

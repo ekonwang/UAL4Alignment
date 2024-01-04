@@ -11,7 +11,7 @@ from datasets import load_dataset
 from tqdm import tqdm
 
 # support running without installing as a package
-wd = Path(__file__).parent.parent.resolve()
+wd = Path(__file__).parent.parent.parent.resolve()
 sys.path.append(str(wd))
 
 from generate import generate
