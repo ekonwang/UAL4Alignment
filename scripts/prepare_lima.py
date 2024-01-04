@@ -26,7 +26,8 @@ def prepare(
     seed: int = 42,
     mask_inputs: bool = False,  # not as in alpaca-lora, we have multi-turn dialogue
     data_source: str = "GAIR/lima",
-    score_path: str = None
+    score_path: str = None,
+    smooth_value: float = 0.1,
 ) -> None:
     """Prepare the Alpaca dataset for instruction tuning.
     
@@ -34,7 +35,10 @@ def prepare(
     which stores the preprocessed and tokenized prompts and labels.
     """
     
+    if score_path is not None:
+        destination_path = destination_path / f"ls-{smooth_value}"
     destination_path.mkdir(parents=True, exist_ok=True)
+    print(destination_path)
 
     # TODO: If we don't have the Meta weights, where do we get the tokenizer from?
     tokenizer = Tokenizer(tokenizer_path)
@@ -52,12 +56,13 @@ def prepare(
 
     print("Processing train split ...")
     train_set = [prepare_sample(sample, tokenizer, max_seq_length, mask_inputs) for sample in tqdm(train_set)]
+    print(tokenizer.decode(train_set[-1]['input_ids']))
 
     if score_path is not None:
         with open(score_path) as f:
             scores = json.load(f)
             assert len(scores) == len(train_set)
-        scores = make_score_dist(scores, target_mean=0.1)
+        scores = make_score_dist(scores, target_mean=smooth_value)
         train_set = [dict(sample, smooth_value=score) for sample, score in zip(train_set, scores)]
 
     torch.save(train_set, destination_path / "train.pt")
@@ -98,11 +103,12 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
         label_list = []
         dialogue_list = []
 
-        for instr, resp in zip(instructions, responses): # iteratively concatenate the dialogue turns
+        for i, (instr, resp) in enumerate(zip(instructions, responses)): # iteratively concatenate the dialogue turns
             if len(dialogue_list) == 0:
                 full_prompt = generate_prompt(instr, sys=has_sys_prompt)
             else:
                 full_prompt = generate_prompt(instr)
+
             full_prompt_and_response = full_prompt + resp
             encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
             encoded_full_prompt_and_response = tokenize(tokenizer, full_prompt_and_response, eos=True, max_length=max_length)
@@ -113,6 +119,7 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
             dialogue_list.append(encoded_full_prompt_and_response)
             label_list.append(label)
             # TODO:  1) to check if ignore_index is set correctly 2) to check if the prefix is correctly tokenized
+
         input_ids = torch.cat(dialogue_list, dim=0)
         labels = torch.cat(label_list, dim=0)
         input_ids = input_ids[:max_length]

@@ -47,7 +47,6 @@ lora_dropout = 0.1
 warmup_iters = 100
 smooth = 0.1
 
-# tag=f'sft_lima_lora_A800-longctx_micro-{micro_batch_size} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 tag=f'sft_lima_lora_sctx-{max_seq_length}_micro{micro_batch_size}_epoch{max_epochs}{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 multi_dialogue = 'multi-dialogue'
 tag=tag.replace('micro', f'{multi_dialogue}-micro')
@@ -190,25 +189,25 @@ def label_smooth(labels, classes, smoothing=0.1):
     return smooth_label.to(original_device)
 
 
-def loss_fn(logits, targets, smoothing=0.0):
-    targets = label_smooth(targets, logits.size(-1), smoothing=smoothing)
+def loss_fn(logits, targets_, smoothing=0.0):
+    # TODO: support mask inputs for label smoothing
+    targets = label_smooth(targets_, logits.size(-1), smoothing=smoothing)
     logits = logits[..., :-1, :].contiguous()
     targets = targets[..., 1:, :].contiguous()
 
     logits = logits.view(-1, logits.size(-1))
     targets = targets.view(-1, targets.size(-1))
 
+    real_mask = (targets_ != -1)
+    mask = real_mask.unsqueeze(-1).expand(-1, -1, logits.size(-1))
+    mask = mask.view(-1, logits.size(-1)).float()
+
     log_preds = F.log_softmax(logits, dim=1)
-    loss = -torch.sum(log_preds * targets) / targets.size(0)
+    log_preds = log_preds * mask
+    loss = -torch.sum(log_preds * targets) / real_mask.float().sum()
+    import pdb; pdb.set_trace()
     return loss
 
-# def loss_fn(logits, targets, smoothing=0.0):
-#     # shift the targets such that output n predicts token n+1
-#     logits = logits[..., :-1, :].contiguous()
-#     targets = targets[..., 1:].contiguous()
-#     loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
-#     return loss
-    
 
 def get_batch(fabric: L.Fabric, data: list):
     ix = torch.randint(len(data), (micro_batch_size,))
