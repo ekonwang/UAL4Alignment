@@ -5,7 +5,7 @@ import time
 
 def main(
     ckpt: Path = Path("./out/lora/lima"),
-    max_iters: int = 30999,
+    max_iters: int = 6999,
     shot_configs: str = "0",
 ):
     assert ckpt.is_dir()
@@ -22,12 +22,12 @@ def main(
         for ckpt in ckpts:
             print(ckpt)
             print()
-            # cmd = f'python benchmark/openllm_leaderboard.py --data_dir ARC --lora_path {ckpt} --shot_num {shot_num}'
-            # os.system(cmd)
-            # cmd = f'python benchmark/openllm_leaderboard.py --data_dir TruthfulQA --lora_path {ckpt} --shot_num {shot_num}'
-            # os.system(cmd)
-            # cmd = f'python benchmark/openllm_leaderboard.py --data_dir MMLU --lora_path {ckpt} --shot_num {shot_num}'
-            # os.system(cmd)
+            cmd = f'python benchmark/openllm_leaderboard.py --data_dir ARC --lora_path {ckpt} --shot_num {shot_num}'
+            os.system(cmd)
+            cmd = f'python benchmark/openllm_leaderboard.py --data_dir TruthfulQA --lora_path {ckpt} --shot_num {shot_num}'
+            os.system(cmd)
+            cmd = f'python benchmark/openllm_leaderboard.py --data_dir MMLU --lora_path {ckpt} --shot_num {shot_num}'
+            os.system(cmd)
             cmd = f'python benchmark/openllm_leaderboard.py --data_dir HellaSwag --lora_path {ckpt} --shot_num {shot_num}'
             os.system(cmd)
 

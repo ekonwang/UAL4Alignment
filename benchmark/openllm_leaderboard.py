@@ -45,16 +45,18 @@ def main(
     data_dir: str = "ARC",
     shot_num: int = 0,
     output_file: str = None,
+    best_of: int = 4,
 ) -> None:
     
-    # assert lora_path.is_file()
     assert pretrained_path.is_file()
     assert tokenizer_path.is_file()
     assert data_dir in data_configs.keys()
     assert shot_num <= 32
 
     lora_signature = f"{'-'.join(str(lora_path).split('/')[-2:]).rsplit('.', 1)[0]}" if lora_path is not None else "pretrained-baseline"
-    output_file = Path(f"out/benchmark/multi-choices/"\
+    # f"/multi-choices/"\
+    output_file = Path(f"out/benchmark/"\
+                    f"best-of-n/"\
                     f"lima_{data_dir}/"\
                     f"{shot_num}-shot/"\
                     f"{lora_signature}_"\
@@ -102,12 +104,14 @@ def main(
         # prompt = generate_prompt(return_dict['inputs'])
         prompt = return_dict['inputs']
         # output = model_inference(model, tokenizer, prompt, max_new_tokens, top_k, temperature)
-        response = model_fast_inference(model, tokenizer, prompt, num_choices=return_dict['num_choices'], max_tokens=max_tokens)
+        # response = model_fast_inference(model, tokenizer, prompt, num_choices=return_dict['num_choices'], max_tokens=max_tokens)
+        response = model_best_of_n_inference(model, tokenizer, prompt, max_tokens=max_tokens, temperature=temperature, top_k=top_k, n=best_of)
 
-        acc_cnt += 1 if response == sample['answer'] else 0
+        # acc_cnt += 1 if response == sample['answer'] else 0
+        acc_cnt += 1 if sample['answer'] in response else 0
         tot_cnt += 1
 
-        print(prompt + response)
+        print(prompt, response)
         print("\n\n========== {}/{} ==========\n".format(acc_cnt, tot_cnt))
 
         collected_responses.append(dict(
@@ -167,15 +171,49 @@ def model_fast_inference(model, tokenizer, prompt, num_choices, max_tokens):
     return model_choice
 
 
+def model_best_of_n_inference(model, tokenizer, prompt, max_tokens, temperature, top_k, n=32):
+    """
+    The function is equivalent to model generate n times with temperature and top_k.
+    And the model is asked to output in following format:
+
+    [Choice]. [Rationale].
+     """
+    # TODO: model must output a choice first, then generate the rationales.
+    # so we do not bother generating all the tokens, just care about the first one.
+    encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)[-max_tokens:].unsqueeze(0)
+    # it is up to the model to generate any choice, even out of the candidate choices (e.g., 'E', 'F', 'G', 'H')
+    choices = choice_configs[:]
+    choices_idx = torch.tensor([tokenizer.encode(c, bos=False)[0] for c in choices], device=model.device, dtype=torch.long)
+
+    # size is (V)
+    logits = model(encoded)[0, -1] / temperature
+    # scatter -float("Inf") to the elements in the logits if not in topk
+    if top_k is not None:
+        v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+        logits = torch.where(logits < v[[-1]], -float("Inf"), logits)
+
+    # scatter -float("Inf") to the elements in the logits if the index not in choices_idx
+    # logits = torch.where(torch.isin(torch.arange(logits.size(-1), device=logits.device), choices_idx), logits, -float("Inf"))
+    probs = torch.nn.functional.softmax(logits, dim=-1)
+
+    idxs = []
+    for i in range(n):
+        idxs.append(int(torch.multinomial(probs, num_samples=1)[0].to(dtype=torch.long)))
+
+    decoded_answers = [tokenizer.processor.decode(idx) for idx in idxs]
+    return decoded_answers
+
+
 def wrap_input(sample_dict, include_answer=False):
     question_with_answer_temp = f"""
-# Question: {sample_dict['question']}
+# Question:
+{sample_dict['question']}
 
-# Choices: 
+# Choices:
 """ 
     for idx, choice in zip(choice_configs, sample_dict['choices']):
         question_with_answer_temp += f"{idx}. {choice}\n"
-    question_with_answer_temp += f"\n# Answer: "
+    question_with_answer_temp += f"\n# Answer:\n"
     if include_answer:
         question_with_answer_temp += f"{sample_dict['answer']}\n"
     return question_with_answer_temp
