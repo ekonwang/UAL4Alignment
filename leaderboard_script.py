@@ -7,10 +7,12 @@ def main(
     ckpt: Path = Path("./out/lora/lima"),
     max_iters: int = 6999,
     shot_configs: str = "0",
+    best_of: int = 4,
 ):
     assert ckpt.is_dir()
 
-    ckpts = sorted(os.listdir(ckpt))
+    # larger epoch priority
+    ckpts = reversed(sorted(os.listdir(ckpt)))
     ckpts = [c for c in ckpts if ("finetuned" not in c and int(c.split('-')[1]) <= max_iters)]
     ckpts = [ckpt / c for c in ckpts]
 
@@ -22,13 +24,13 @@ def main(
         for ckpt in ckpts:
             print(ckpt)
             print()
-            cmd = f'python benchmark/openllm_leaderboard.py --data_dir ARC --lora_path {ckpt} --shot_num {shot_num}'
+            cmd = f'python benchmark/openllm_leaderboard.py --data_dir ARC --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
             os.system(cmd)
-            cmd = f'python benchmark/openllm_leaderboard.py --data_dir TruthfulQA --lora_path {ckpt} --shot_num {shot_num}'
+            cmd = f'python benchmark/openllm_leaderboard.py --data_dir TruthfulQA --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
             os.system(cmd)
-            cmd = f'python benchmark/openllm_leaderboard.py --data_dir MMLU --lora_path {ckpt} --shot_num {shot_num}'
+            cmd = f'python benchmark/openllm_leaderboard.py --data_dir MMLU --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
             os.system(cmd)
-            cmd = f'python benchmark/openllm_leaderboard.py --data_dir HellaSwag --lora_path {ckpt} --shot_num {shot_num}'
+            cmd = f'python benchmark/openllm_leaderboard.py --data_dir HellaSwag --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
             os.system(cmd)
 
             time.sleep(3)
