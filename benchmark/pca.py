@@ -12,7 +12,7 @@ from datasets import load_dataset
 from tqdm import tqdm
 
 # support running without installing as a package
-wd = Path(__file__).parent.parent.parent.resolve()
+wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
 from generate import generate
@@ -63,11 +63,10 @@ def main(
 
     model.eval()
     model = fabric.setup(model)
-    tokenizer = Tokenizer(tokenizer_path)
 
     collected_transformer_features = list()
     encoded = None
-    test_dataset = load_dataset(data_dir, split=data_split)
+    test_dataset = load_datasets(data_dir)[data_split]
 
     def transformer_hook(model, input, output):
         # the output is the results of the last RMS norm layer, size is (B, T, embed_size)
@@ -79,21 +78,18 @@ def main(
         
         for label, feature in zip(labels, features):
             collected_transformer_features.append((label, feature))
-        print(len(label))
-        import pdb; pdb.set_trace()
+        print(len(labels))
 
-    hook = model.transformer.register_forward_hook(transformer_hook)
+    hook = model.transformer.ln_f.register_forward_hook(transformer_hook)
 
     for sample in tqdm(test_dataset):
-        encoded = sample['input_ids'].view(1, -1)
-        _ = model(encoded)
-        import pdb; pdb.set_trace()
+        encoded = sample['input_ids'].view(1, -1).to(fabric.device)
+        logits = model(encoded)
     
     hook.remove()
     torch.save(collected_transformer_features, output_file)
     if fabric.device.type == "cuda":
         print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB", file=sys.stderr)
-    
 
 
 def load_datasets(data_dir):
