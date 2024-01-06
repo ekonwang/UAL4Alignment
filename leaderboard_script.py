@@ -20,18 +20,26 @@ def main(
     shot_setting = [int(s) for s in shot_setting]
 
     # run bash command
+    def run_command(cmd):
+        ret = -1 
+        while(ret):
+            ret = os.system(cmd)
+            print(cmd)
+            if ret:
+                time.sleep(60)
+
     for shot_num in shot_setting:
         for ckpt in ckpts:
             print(ckpt)
             print()
             cmd = f'python benchmark/openllm_leaderboard.py --data_dir ARC --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            os.system(cmd)
+            run_command(cmd)
             cmd = f'python benchmark/openllm_leaderboard.py --data_dir TruthfulQA --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            os.system(cmd)
+            run_command(cmd)
             cmd = f'python benchmark/openllm_leaderboard.py --data_dir MMLU --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            os.system(cmd)
+            run_command(cmd)
             cmd = f'python benchmark/openllm_leaderboard.py --data_dir HellaSwag --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            os.system(cmd)
+            run_command(cmd)
 
             time.sleep(3)
 
