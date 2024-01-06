@@ -63,6 +63,7 @@ def main(
                     f".json")
     output_file.parent.mkdir(parents=True, exist_ok=True)
     assert not output_file.is_file()
+    print(output_file)
 
     if quantize is not None:
         raise NotImplementedError("Quantization in LoRA is not supported yet")
