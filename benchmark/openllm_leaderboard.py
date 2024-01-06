@@ -59,9 +59,10 @@ def main(
                     f"best-of-n/"\
                     f"lima_{data_dir}/"\
                     f"{shot_num}-shot/"\
-                    f"{lora_signature}_"\
-                    f"{datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S')}.json")
+                    f"{lora_signature}_{data_dir}"\
+                    f".json")
     output_file.parent.mkdir(parents=True, exist_ok=True)
+    assert not output_file.is_file()
 
     if quantize is not None:
         raise NotImplementedError("Quantization in LoRA is not supported yet")
