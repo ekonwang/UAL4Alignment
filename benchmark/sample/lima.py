@@ -24,7 +24,7 @@ from scripts.prepare_lima import generate_prompt
 
 lora_r = 8
 lora_alpha = 16
-lora_dropout = 0.05
+lora_dropout = 0.0
 
 
 def main(
