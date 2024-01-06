@@ -24,7 +24,7 @@ from scripts.prepare_lima import generate_prompt
 
 lora_r = 8
 lora_alpha = 16
-lora_dropout = 0.05
+lora_dropout = 0.0
 
 data_configs = {
     "ARC": ("ai2_arc", "ARC-Challenge", "validation"),
@@ -62,7 +62,8 @@ def main(
                     f"{lora_signature}_{data_dir}"\
                     f".json")
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    assert not output_file.is_file()
+    if output_file.is_file():
+        exit(0)
     print(output_file)
 
     if quantize is not None:
@@ -126,8 +127,8 @@ def main(
 
     if fabric.device.type == "cuda":
         print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB", file=sys.stderr)
-        
-    output_file = str(output_file).replace(".json", f"_acc-{100*acc_cnt/tot_cnt:.02f}.json")
+    
+    collected_responses = [dict(acc=100*acc_cnt/tot_cnt)] + collected_responses
 
     with open(output_file, "w") as f:
         json.dump(collected_responses, f, indent=4)
