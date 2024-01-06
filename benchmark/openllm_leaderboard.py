@@ -39,7 +39,7 @@ def main(
     pretrained_path: Path = Path("checkpoints/lit-llama/7B/lit-llama.pth"),
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
     quantize: Optional[str] = None,
-    max_tokens: int = 1024,
+    max_tokens: int = 512,
     top_k: int = 200,
     temperature: float = 0.8,
     data_dir: str = "ARC",
