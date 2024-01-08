@@ -30,8 +30,8 @@ def main(
     pretrained_path: Path = Path("checkpoints/lit-llama/7B/lit-llama.pth"),
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
     max_new_tokens: int = 1024,
-    top_k: int = 200,
-    temperature: float = 0.8,
+    top_k: int = 1,
+    temperature: float = 0.01,
     data_dir: Path = Path("out/benchmark/case_study/elected_samples.json"),
     output_file: str = None,
 ) -> None:
@@ -64,9 +64,11 @@ def main(
 
     print(f"Time to load pretrained model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
 
+    def parse_iter(ckpt):
+        return int(ckpt.split('-')[1])
     model = fabric.setup(model)
     tokenizer = Tokenizer(tokenizer_path)
-    loras = [lora_ckpt for lora_ckpt in sorted(os.listdir(loras_path)) if 'iter' in lora_ckpt]
+    loras = [lora_ckpt for lora_ckpt in sorted(os.listdir(loras_path)) if 'iter' in lora_ckpt and parse_iter(lora_ckpt) < 16000]
 
     collected_responses = list()
     with open(data_dir, 'r') as f:
