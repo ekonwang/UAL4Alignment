@@ -51,16 +51,16 @@ def main(
     print("Loading model ...", file=sys.stderr)
     t0 = time.time()
 
-    with torch.load(pretrained_path) as pretrained_checkpoint:
+    with lazy_load(pretrained_path) as pretrained_checkpoint:
         name = llama_model_lookup(pretrained_checkpoint)
 
         with fabric.init_module(empty_init=True), lora(r=lora_r, alpha=lora_alpha, dropout=lora_dropout, enabled=True):
             model = LLaMA.from_name(name)
 
             # Load the pretrained weights
-            import pdb; pdb.set_trace()
             # TODO: save a checkpoint matrix
             model.load_state_dict(pretrained_checkpoint, strict=False)
+            __save_attn_ref = model.transformer.h[31].attn.c_attn.weight.clone().cpu().detach()
 
     print(f"Time to load pretrained model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
 
@@ -78,15 +78,19 @@ def main(
         for sample in tqdm(inputs):
             sample['set'] = pset
             collected_responses.append(
-                dict(sample=list())
+                dict(
+                    sample=sample,
+                    responses=list()
+                )
             )
             input = sample['conversations'][0]
             prompt = generate_prompt(input)
-            encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)
+            encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)[-512:]
 
             for lora_ckpt in loras:
                 # Split LoRA weights from pretrained weights
                 model.train()
+                # TODO: check from second lora_ckpt
                 with lora(lora_r, lora_alpha, lora_dropout), lazy_load(os.path.join(loras_path, lora_ckpt)) as lora_checkpoint:
                     # Load the LoRA weights
                     model.load_state_dict(lora_checkpoint, strict=False)
@@ -112,7 +116,7 @@ def main(
                 print(prompt)
                 print(response)
 
-                collected_responses[sample].append(
+                collected_responses[-1]['responses'].append(
                     dict(
                         lora_ckpt=lora_ckpt,
                         response=response,
@@ -120,7 +124,7 @@ def main(
                 )
 
                 with open(output_file, "w") as f:
-                    json.dump(collected_responses, f, indent=4)
+                    json.dump(collected_responses, f, indent=4, ensure_ascii=False)
                 print(f"Saved to {output_file}", file=sys.stderr)
 
     if fabric.device.type == "cuda":
