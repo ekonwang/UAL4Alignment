@@ -119,9 +119,9 @@ def main(
                     )
                 )
 
-        with open(output_file, "w") as f:
-            json.dump(collected_responses, f, indent=4)
-        print(f"Saved to {output_file}", file=sys.stderr)
+                with open(output_file, "w") as f:
+                    json.dump(collected_responses, f, indent=4)
+                print(f"Saved to {output_file}", file=sys.stderr)
 
     if fabric.device.type == "cuda":
         print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB", file=sys.stderr)
