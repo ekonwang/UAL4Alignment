@@ -3,9 +3,7 @@ import os
 import json
 import time
 import warnings
-import datetime
 from pathlib import Path
-from typing import Optional
 
 import lightning as L
 import torch
@@ -45,6 +43,7 @@ def main(
 
     if output_file is None:
         output_file = f"out/benchmark/case_study/lima/{str(loras_path).split('/')[-1]}.json"
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
 
     precision = "bf16-true" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "32-true"
     fabric = L.Fabric(devices=1, precision=precision)
@@ -52,54 +51,74 @@ def main(
     print("Loading model ...", file=sys.stderr)
     t0 = time.time()
 
-    with lazy_load(pretrained_path) as pretrained_checkpoint:
+    with torch.load(pretrained_path) as pretrained_checkpoint:
         name = llama_model_lookup(pretrained_checkpoint)
 
         with fabric.init_module(empty_init=True), lora(r=lora_r, alpha=lora_alpha, dropout=lora_dropout, enabled=True):
             model = LLaMA.from_name(name)
 
             # Load the pretrained weights
+            import pdb; pdb.set_trace()
+            # TODO: save a checkpoint matrix
             model.load_state_dict(pretrained_checkpoint, strict=False)
 
     print(f"Time to load pretrained model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
 
     model = fabric.setup(model)
     tokenizer = Tokenizer(tokenizer_path)
+    loras = [lora_ckpt for lora_ckpt in sorted(os.listdir(loras_path)) if 'iter' in lora_ckpt]
 
     collected_responses = list()
-    test_dataset = load_dataset(data_dir, split="test")
+    with open(data_dir, 'r') as f:
+        prompt_sets = json.load(f)
 
-    for sample in tqdm(test_dataset):
-        inputs = sample["conversations"][0]
-        prompt = generate_prompt(inputs)
-        encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)
+    for pset in prompt_sets:
+        inputs = prompt_sets[pset]
 
-        t0 = time.perf_counter()
-        output = generate(
-            model,
-            idx=encoded,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_k=top_k,
-            eos_id=tokenizer.eos_id
-        )
-        model.reset_cache()
-        t = time.perf_counter() - t0
-        print(f"\n\nTime for inference: {t:.02f} sec total, {(len(output) - len(encoded)) / t:.02f} tokens/sec", file=sys.stderr)
+        for sample in tqdm(inputs):
+            sample['set'] = pset
+            collected_responses.append(
+                dict(sample=list())
+            )
+            input = sample['conversations'][0]
+            prompt = generate_prompt(input)
+            encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)
 
-        output = tokenizer.decode(output)
-        response = output.replace(prompt, "").strip()
-        print(prompt)
-        print(response)
-        print("\n\n====================\n")
+            for lora_ckpt in loras:
+                # Split LoRA weights from pretrained weights
+                model.train()
+                with lora(lora_r, lora_alpha, lora_dropout), lazy_load(os.path.join(loras_path, lora_ckpt)) as lora_checkpoint:
+                    # Load the LoRA weights
+                    model.load_state_dict(lora_checkpoint, strict=False)
+                # Merge LoRA weights into pretrained weights
+                model.eval()
 
-        collected_responses.append(dict(
-            inputs=inputs,
-            prompt=prompt,
-            response=response,
-        ))
+                t0 = time.perf_counter()
+                output = generate(
+                    model,
+                    idx=encoded,
+                    max_new_tokens=max_new_tokens,
+                    temperature=temperature,
+                    top_k=top_k,
+                    eos_id=tokenizer.eos_id
+                )
+                model.reset_cache()
+                t = time.perf_counter() - t0
+                print(f"\n\nTime for inference: {t:.02f} sec total, {(len(output) - len(encoded)) / t:.02f} tokens/sec", file=sys.stderr)
 
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+                output = tokenizer.decode(output)
+                response = output.replace(prompt, "").strip()
+                print(os.path.join(loras_path, lora_ckpt))
+                print(prompt)
+                print(response)
+
+                collected_responses[sample].append(
+                    dict(
+                        lora_ckpt=lora_ckpt,
+                        response=response,
+                    )
+                )
+
         with open(output_file, "w") as f:
             json.dump(collected_responses, f, indent=4)
         print(f"Saved to {output_file}", file=sys.stderr)
