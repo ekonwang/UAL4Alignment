@@ -8,12 +8,20 @@ def main(
     max_iters: int = 6999,
     shot_configs: str = "0",
     best_of: int = 4,
+    ckpt_policy: str = "steps"
 ):
     assert ckpt.is_dir()
+    assert ckpt_policy in ["steps", "finetuned"]
 
     # larger epoch priority
     ckpts = reversed(sorted(os.listdir(ckpt)))
-    ckpts = [c for c in ckpts if ("finetuned" not in c and int(c.split('-')[1]) <= max_iters)]
+    if ckpt_policy == "steps":
+        ckpts = [c for c in ckpts if ("finetuned" not in c and int(c.split('-')[1]) <= max_iters)]
+    else:
+        ckpts = [c for c in ckpts if "finetuned" in c]
+    print(ckpt)
+    print(ckpts)
+
     ckpts = [ckpt / c for c in ckpts]
 
     shot_setting = shot_configs.split(',')

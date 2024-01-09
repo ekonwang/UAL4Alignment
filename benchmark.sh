@@ -20,7 +20,7 @@ LORA_ADA_LIMA_E20=/workspace/lit-llama/out/lora/lima/sft_ada-lima_lora_sctx-512_
     # python benchmark/openllm_leaderboard.py --data_dir "MMLU" --lora_path $lora_path --shot_num 5
 # done
 
-python benchmark/openllm_leaderboard.py --data_dir ARC --best_of 4
-python benchmark/openllm_leaderboard.py --data_dir TruthfulQA --best_of 4
-python benchmark/openllm_leaderboard.py --data_dir MMLU --best_of 4
+# python benchmark/openllm_leaderboard.py --data_dir ARC --best_of 4
+# python benchmark/openllm_leaderboard.py --data_dir TruthfulQA --best_of 4
+# python benchmark/openllm_leaderboard.py --data_dir MMLU --best_of 4
 python benchmark/openllm_leaderboard.py --data_dir HellaSwag --best_of 4
