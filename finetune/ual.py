@@ -24,12 +24,17 @@ from generate import generate
 from lit_llama.lora import mark_only_lora_as_trainable, lora, lora_state_dict
 from lit_llama.model import LLaMA, LLaMAConfig
 from scripts.prepare_alpaca import generate_prompt
+from tqdm import tqdm
 
+# disable wandb for this script
+# os.environ['WANDB_MODE'] = 'disabled'
 
 instruction_tuning = True
 save_interval = 1030
 log_interval = 1
 
+# constants
+multi_dialogue = 'multi-dialogue'
 # Hyperparameters
 learning_rate = 3e-4
 batch_size = 64
@@ -45,37 +50,17 @@ lora_alpha = 16
 lora_dropout = 0.1
 
 def main(
-    data_dir: str = "data/lima", 
+    data_dir: str = "data/deita-6k-v0", 
     pretrained_path: str = "checkpoints/lit-llama/7B/lit-llama.pth",
     out_dir: str = None,
     smooth:float = 0.0,
 ):  
-    global save_interval, max_iters, max_epochs, warmup_iters
     # recognize the dataset name from the data_dir
+    # and reset hyperparameters as well
     dataset_name = data_dir.split('/')[-1]
-    assert dataset_name in ['lima', 'deita-6k-v0']
-    if dataset_name == 'lima':
-        save_interval = 1030
-        max_epochs = 10
-        # it seems that alpaca is obtained after 3 epochs, but lima needs more
-        max_iters = save_interval * max_epochs // micro_batch_size
-        warmup_iters = int(0.1 * max_iters)
-    elif dataset_name == 'deita-6k-v0':
-        # follow the paper setting: 
-        # WHAT MAKES GOOD DATA FOR ALIGNMENT? A COMPREHENSIVE STUDY OF AUTOMATIC DATA SELECTION IN INSTRUCTION TUNING
-        # (https://arxiv.org/pdf/2312.15685.pdf)
-        max_epochs = 6
-        save_interval = 6000
-        max_iters = save_interval * max_epochs // micro_batch_size
-        warmup_iters = int(0.1 * max_iters)
-
-    __running_tag=f'sft_{dataset_name}_'\
-        f'lora_sctx-{max_seq_length}_micro{micro_batch_size}_'\
-        f'epoch{max_epochs}'\
-        f'{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} '+\
-        datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-    multi_dialogue = 'multi-dialogue'
-    __running_tag = __running_tag.replace('micro', f'{multi_dialogue}-micro')
+    reset_hyperparameters__(dataset_name)
+    __running_tag = formulate_specific_tag__(dataset_name, smooth)
+    
 
     if out_dir is None:
         out_dir = f"out/lora/{dataset_name}/{__running_tag.replace(' ', '_')}"
@@ -129,8 +114,10 @@ def train(
     """
     step_count = 0
     accumulated_loss = 0.0
+    awarer = UncertaintyAware()
 
-    for iter_num in range(max_iters):
+    pbar = tqdm(range(max_iters))
+    for iter_num in pbar:
 
         if step_count <= warmup_iters:
             # linear warmup
@@ -141,9 +128,11 @@ def train(
         t0 = time.time()
 
         return_dict = get_batch(fabric, train_data)
+
         with fabric.no_backward_sync(model, enabled=((iter_num + 1) % gradient_accumulation_iters != 0)):
             logits = model(return_dict['input_ids'])
-            loss = loss_fn(logits, return_dict['labels'], smoothing=smoothing)
+            loss_constraits = awarer.get_value(logits, return_dict) if smoothing != 0.0 else 0.0
+            loss = loss_fn(logits, return_dict['labels'], smoothing=loss_constraits)
             fabric.backward(loss / gradient_accumulation_iters)
             accumulated_loss += loss.item()
 
@@ -152,6 +141,7 @@ def train(
             optimizer.zero_grad()
             step_count += 1
             wandb.log({"loss": accumulated_loss / gradient_accumulation_iters})
+            wandb.log({"smooth_value": awarer.last()})
             accumulated_loss = 0.0
 
         if (iter_num + 1) % save_interval == 0:
@@ -163,8 +153,63 @@ def train(
             fabric.save(os.path.join(out_dir, f"iter-{iter_num + 1:06d}-ckpt.pth"), checkpoint)
 
         dt = time.time() - t0
+
         if iter_num % log_interval == 0:
-            fabric.print(f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms")
+            __log_info = f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms"
+            if smoothing != 0.0:
+                __log_info += f", smooth_value {loss_constraits[0]:.4f}"
+            pbar.set_description(__log_info)
+    
+    with open(os.path.join(out_dir, 'smooth_values.json'), 'w') as f:
+        import json
+        json.dump(awarer.all(), f)
+
+
+class UncertaintyAware:
+    def __init__(self, target_avg=0.1):
+        assert 0.0 < target_avg < 1.0
+        self.target_avg = target_avg
+        self.move_avg = MovingAverage()
+        self.__result_move_avg = MovingAverage()
+
+
+    def __ppl_cal(self, logits, labels):
+        """Calculate the perplexity of the logits."""
+        # (batch_size, seq_len, vocab_size), (batch_size, seq_len)
+        log_preds = F.log_softmax(logits, dim=2)
+        sum_log_preds =  torch.gather(log_preds, 2, labels.unsqueeze(-1)).squeeze(-1).sum(dim=1)
+        _mask = (labels != -1).to(torch.float).sum(dim=1)
+        ppl = -sum_log_preds / _mask
+
+        return ppl.cpu().detach()
+
+    def get_value(self, logits, return_dict):
+        """Calculate the uncertainty based on inputs PPL."""
+        ppl = self.__ppl_cal(logits, return_dict['labels'])
+        ppl_floats = ppl.view(-1).numpy().tolist()
+        for i, ppl_f in enumerate(ppl_floats):
+            self.move_avg.update(ppl_f)
+        # TODO: the methodology of uncertainty-aware is not clear
+        factors = self.move_avg.get() / ppl.view(-1).numpy()
+        # intuitive understanding: the higher the uncertainty, the less the smooth value in cross entropy
+        smooth_values = [self.target_avg * factor for factor in factors.tolist()]
+        smooth_values = np.clip(np.array(smooth_values), 0.0, 0.99).tolist()
+
+        # record the smooth values for logging
+        for i, smooth_value in enumerate(smooth_values):
+            self.__result_move_avg.update(smooth_value)
+        return smooth_values
+
+
+    def final(self):
+        # report the average smooth value
+        return self.__result_move_avg.get()
+    
+    def last(self):
+        return self.__result_move_avg.values[-1]
+    
+    def all(self):
+        return self.__result_move_avg.values
 
 
 def label_smooth(labels, classes, smoothing=0.1):
@@ -254,6 +299,51 @@ def get_batch(fabric: L.Fabric, data: list):
 def load_datasets(data_dir):
     train_data = torch.load(os.path.join(data_dir, "train.pt"))
     return train_data
+
+
+class MovingAverage:
+    def __init__(self):
+        self.values = []
+        self.tot = 0.0
+    
+    def update(self, value):
+        assert isinstance(value, float)
+        self.values.append(value)
+        self.tot += value
+    
+    def get(self):
+        return self.tot / len(self.values)
+
+
+def reset_hyperparameters__(dataset_name):
+    global save_interval, max_iters, max_epochs, warmup_iters
+
+    assert dataset_name in ['lima', 'deita-6k-v0']
+    if dataset_name == 'lima':
+        save_interval = 1030
+        max_epochs = 10
+        # it seems that alpaca is obtained after 3 epochs, but lima needs more
+        max_iters = save_interval * max_epochs // micro_batch_size
+        warmup_iters = int(0.1 * max_iters)
+    elif dataset_name == 'deita-6k-v0':
+        # follow the paper setting: 
+        # WHAT MAKES GOOD DATA FOR ALIGNMENT? A COMPREHENSIVE STUDY OF AUTOMATIC DATA SELECTION IN INSTRUCTION TUNING
+        # (https://arxiv.org/pdf/2312.15685.pdf)
+        max_epochs = 6
+        save_interval = 6000
+        max_iters = save_interval * max_epochs // micro_batch_size
+        warmup_iters = int(0.1 * max_iters)
+
+
+def formulate_specific_tag__(dataset_name, smooth):
+    __running_tag=f'{"ual" if smooth else "sft"}_'\
+        f'{dataset_name}_'\
+        f'lora_sctx-{max_seq_length}_micro{micro_batch_size}_'\
+        f'epoch{max_epochs}'\
+        f'{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} '+\
+        datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+    __running_tag = __running_tag.replace('micro', f'{multi_dialogue}-micro')
+    return __running_tag
 
 
 if __name__ == "__main__":
