@@ -22,7 +22,7 @@ IGNORE_INDEX = -1
 def prepare(
     destination_path: Path = Path("data/lima"), 
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
-    max_seq_length: int = 512,  # 2048 for the setting in the paper (https://arxiv.org/pdf/2305.11206.pdf)
+    max_seq_length: int = 1024,  # half of 2048 (the setting in the paper) (https://arxiv.org/pdf/2305.11206.pdf)
     seed: int = 42,
     mask_inputs: bool = False,  # not as in alpaca-lora, we have multi-turn dialogue
     data_source: str = "GAIR/lima",

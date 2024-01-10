@@ -27,7 +27,7 @@ from scripts.prepare_alpaca import generate_prompt
 
 
 instruction_tuning = True
-save_interval = 20
+save_interval = 1030
 log_interval = 1
 
 # Hyperparameters
@@ -36,10 +36,10 @@ batch_size = 64
 micro_batch_size = 1
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
-max_epochs = 15
+max_epochs = 10
 max_iters = 1030 * max_epochs // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs more
 weight_decay = 0.0
-max_seq_length = 512  # see scripts/prepare_lima.py
+max_seq_length = 1024  # see scripts/prepare_lima.py
 lora_r = 8
 lora_alpha = 16
 lora_dropout = 0.1
@@ -132,13 +132,13 @@ def train(
             wandb.log({"loss": accumulated_loss / gradient_accumulation_iters})
             accumulated_loss = 0.0
 
-            if step_count % save_interval == 0:
-                fabric.barrier()
-                print(f"Saving LoRA weights to {out_dir}")
-                # We are only saving the LoRA weights
-                # TODO: Provide a function/script to merge the LoRA weights with pretrained weights
-                checkpoint = lora_state_dict(model)
-                fabric.save(os.path.join(out_dir, f"iter-{iter_num:06d}-ckpt.pth"), checkpoint)
+        if (iter_num + 1) % save_interval == 0:
+            fabric.barrier()
+            print(f"Saving LoRA weights to {out_dir}")
+            # We are only saving the LoRA weights
+            # TODO: Provide a function/script to merge the LoRA weights with pretrained weights
+            checkpoint = lora_state_dict(model)
+            fabric.save(os.path.join(out_dir, f"iter-{iter_num + 1:06d}-ckpt.pth"), checkpoint)
 
         dt = time.time() - t0
         if iter_num % log_interval == 0:
