@@ -69,15 +69,19 @@ def main(
         max_iters = save_interval * max_epochs // micro_batch_size
         warmup_iters = int(0.1 * max_iters)
 
-    tag=f'sft_{dataset_name}_lora_sctx-{max_seq_length}_micro{micro_batch_size}_epoch{max_epochs}{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+    __running_tag=f'sft_{dataset_name}_'\
+        f'lora_sctx-{max_seq_length}_micro{micro_batch_size}_'\
+        f'epoch{max_epochs}'\
+        f'{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} '+\
+        datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
     multi_dialogue = 'multi-dialogue'
-    tag=tag.replace('micro', f'{multi_dialogue}-micro')
+    __running_tag=__running_tag.replace('micro', f'{multi_dialogue}-micro')
 
     if out_dir is None:
-        out_dir = f"out/lora/{dataset_name}/{tag.replace(' ', '_')}"
+        out_dir = f"out/lora/{dataset_name}/{__running_tag.replace(' ', '_')}"
 
-    # name with "%y-%m-%d-%H-%M-%S" format
-    wandb.init(project='lima-sft', name=tag)  
+    # innitialize wandb monitor process
+    wandb.init(project='lima-sft', name=__running_tag)  
 
     fabric = L.Fabric(accelerator="cuda", devices=1, precision="bf16-true")
     fabric.launch()
@@ -87,7 +91,7 @@ def main(
         os.makedirs(out_dir, exist_ok=True)
 
     train_data = load_datasets(data_dir=data_dir)
-    if multi_dialogue in tag and 'lima' in dataset_name:
+    if multi_dialogue in __running_tag and 'lima' in dataset_name:
         assert len(train_data) == 1030  # assert the 30 multi-turn dialogues are included
     config = LLaMAConfig.from_name("7B")
     config.block_size = max_seq_length
