@@ -30,6 +30,8 @@ instruction_tuning = True
 save_interval = 1030
 log_interval = 1
 
+#
+multi_dialogue = 'multi-dialogue'
 # Hyperparameters
 learning_rate = 3e-4
 batch_size = 64
@@ -50,32 +52,12 @@ def main(
     out_dir: str = None,
     smooth:float = 0.0,
 ):  
-    global save_interval, max_iters, max_epochs, warmup_iters
     # recognize the dataset name from the data_dir
+    # and reset hyperparameters as well
     dataset_name = data_dir.split('/')[-1]
-    assert dataset_name in ['lima', 'deita-6k-v0']
-    if dataset_name == 'lima':
-        save_interval = 1030
-        max_epochs = 10
-        # it seems that alpaca is obtained after 3 epochs, but lima needs more
-        max_iters = save_interval * max_epochs // micro_batch_size
-        warmup_iters = int(0.1 * max_iters)
-    elif dataset_name == 'deita-6k-v0':
-        # follow the paper setting: 
-        # WHAT MAKES GOOD DATA FOR ALIGNMENT? A COMPREHENSIVE STUDY OF AUTOMATIC DATA SELECTION IN INSTRUCTION TUNING
-        # (https://arxiv.org/pdf/2312.15685.pdf)
-        max_epochs = 6
-        save_interval = 6000
-        max_iters = save_interval * max_epochs // micro_batch_size
-        warmup_iters = int(0.1 * max_iters)
-
-    __running_tag=f'sft_{dataset_name}_'\
-        f'lora_sctx-{max_seq_length}_micro{micro_batch_size}_'\
-        f'epoch{max_epochs}'\
-        f'{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} '+\
-        datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-    multi_dialogue = 'multi-dialogue'
-    __running_tag=__running_tag.replace('micro', f'{multi_dialogue}-micro')
+    reset_hyperparameters__(dataset_name)
+    __running_tag = formulate_specific_tag__(dataset_name, smooth)
+    
 
     if out_dir is None:
         out_dir = f"out/lora/{dataset_name}/{__running_tag.replace(' ', '_')}"
@@ -254,6 +236,36 @@ def get_batch(fabric: L.Fabric, data: list):
 def load_datasets(data_dir):
     train_data = torch.load(os.path.join(data_dir, "train.pt"))
     return train_data
+
+
+def reset_hyperparameters__(dataset_name):
+    global save_interval, max_iters, max_epochs, warmup_iters
+
+    assert dataset_name in ['lima', 'deita-6k-v0']
+    if dataset_name == 'lima':
+        save_interval = 1030
+        max_epochs = 10
+        # it seems that alpaca is obtained after 3 epochs, but lima needs more
+        max_iters = save_interval * max_epochs // micro_batch_size
+        warmup_iters = int(0.1 * max_iters)
+    elif dataset_name == 'deita-6k-v0':
+        # follow the paper setting: 
+        # WHAT MAKES GOOD DATA FOR ALIGNMENT? A COMPREHENSIVE STUDY OF AUTOMATIC DATA SELECTION IN INSTRUCTION TUNING
+        # (https://arxiv.org/pdf/2312.15685.pdf)
+        max_epochs = 6
+        save_interval = 6000
+        max_iters = save_interval * max_epochs // micro_batch_size
+        warmup_iters = int(0.1 * max_iters)
+
+
+def formulate_specific_tag__(dataset_name, smooth):
+    __running_tag=f'sft_{dataset_name}_'\
+        f'lora_sctx-{max_seq_length}_micro{micro_batch_size}_'\
+        f'epoch{max_epochs}'\
+        f'{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} '+\
+        datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+    __running_tag = __running_tag.replace('micro', f'{multi_dialogue}-micro')
+    return __running_tag
 
 
 if __name__ == "__main__":
