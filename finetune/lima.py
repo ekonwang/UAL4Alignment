@@ -51,12 +51,13 @@ def main(
     out_dir: str = None,
     smooth:float = 0.0,
 ):
-    tag=f'sft_lima_lora_sctx-{max_seq_length}_micro{micro_batch_size}_epoch{max_epochs}{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+    dataset_name = data_dir.split('/')[-1]
+    tag=f'sft_{dataset_name}_lora_sctx-{max_seq_length}_micro{micro_batch_size}_epoch{max_epochs}{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
     multi_dialogue = 'multi-dialogue'
     tag=tag.replace('micro', f'{multi_dialogue}-micro')
 
     if out_dir is None:
-        out_dir = f"out/lora/lima/{tag.replace(' ', '_')}"
+        out_dir = f"out/lora/{dataset_name}/{tag.replace(' ', '_')}"
 
     # name with "%y-%m-%d-%H-%M-%S" format
     wandb.init(project='lima-sft', name=tag)  
@@ -69,7 +70,7 @@ def main(
         os.makedirs(out_dir, exist_ok=True)
 
     train_data = load_datasets(data_dir=data_dir)
-    if multi_dialogue in tag:
+    if multi_dialogue in tag and 'lima' in dataset_name:
         assert len(train_data) == 1030  # assert the 30 multi-turn dialogues are included
     config = LLaMAConfig.from_name("7B")
     config.block_size = max_seq_length
