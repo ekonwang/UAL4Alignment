@@ -37,21 +37,38 @@ micro_batch_size = 1
 gradient_accumulation_iters = batch_size // micro_batch_size
 assert gradient_accumulation_iters > 0
 max_epochs = 10
-max_iters = 1030 * max_epochs // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs more
+max_iters = save_interval * max_epochs // micro_batch_size  # it seems that alpaca is obtained after 3 epochs, but lima needs more
 weight_decay = 0.0
 max_seq_length = 1024  # see scripts/prepare_lima.py
 lora_r = 8
 lora_alpha = 16
 lora_dropout = 0.1
-warmup_iters = 100
 
 def main(
     data_dir: str = "data/lima", 
     pretrained_path: str = "checkpoints/lit-llama/7B/lit-llama.pth",
     out_dir: str = None,
     smooth:float = 0.0,
-):
+):  
+    global save_interval, max_iters, max_epochs, warmup_iters
+    # recognize the dataset name from the data_dir
     dataset_name = data_dir.split('/')[-1]
+    assert dataset_name in ['lima', 'deita-6k-v0']
+    if dataset_name == 'lima':
+        save_interval = 1030
+        max_epochs = 10
+        # it seems that alpaca is obtained after 3 epochs, but lima needs more
+        max_iters = save_interval * max_epochs // micro_batch_size
+        warmup_iters = int(0.1 * max_iters)
+    elif dataset_name == 'deita-6k-v0':
+        # follow the paper setting: 
+        # WHAT MAKES GOOD DATA FOR ALIGNMENT? A COMPREHENSIVE STUDY OF AUTOMATIC DATA SELECTION IN INSTRUCTION TUNING
+        # (https://arxiv.org/pdf/2312.15685.pdf)
+        max_epochs = 6
+        save_interval = 6000
+        max_iters = save_interval * max_epochs // micro_batch_size
+        warmup_iters = int(0.1 * max_iters)
+
     tag=f'sft_{dataset_name}_lora_sctx-{max_seq_length}_micro{micro_batch_size}_epoch{max_epochs}{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} ' + datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
     multi_dialogue = 'multi-dialogue'
     tag=tag.replace('micro', f'{multi_dialogue}-micro')
