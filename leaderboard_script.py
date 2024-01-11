@@ -16,7 +16,7 @@ def main(
     # larger epoch priority
     ckpts = reversed(sorted(os.listdir(ckpt)))
     if ckpt_policy == "steps":
-        ckpts = [c for c in ckpts if ("finetuned" not in c and int(c.split('-')[1]) <= max_iters)]
+        ckpts = [c for c in ckpts if (c.endswith(".pth") and "finetuned" not in c and int(c.split('-')[1]) <= max_iters)]
     else:
         ckpts = [c for c in ckpts if "finetuned" in c]
     print(ckpt)
