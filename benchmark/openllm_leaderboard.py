@@ -102,8 +102,13 @@ def main(
 
     acc_cnt = 0
     tot_cnt = 0 
+    inference_config = {
+        "data_dir": data_dir,
+        "shot_num": shot_num,
+        "best_of": best_of,
+    }
     for sample in tqdm(test_dataset):
-        return_dict = generate_inputs(sample, icl_dataset)
+        return_dict = generate_inputs(sample, icl_dataset, config=inference_config)
         # prompt = generate_prompt(return_dict['inputs'])
         prompt = return_dict['inputs']
         # output = model_inference(model, tokenizer, prompt, max_new_tokens, top_k, temperature)
@@ -115,7 +120,7 @@ def main(
         tot_cnt += 1
 
         print(prompt, response)
-        print("\n\n========== {}/{} ==========\n".format(acc_cnt, tot_cnt))
+        print("\n\n========== {}/{} ({:.2f} %) ==========\n".format(acc_cnt, tot_cnt, acc_cnt / tot_cnt * 100))
 
         collected_responses.append(dict(
             answer=sample['answer'],
@@ -207,8 +212,16 @@ def model_best_of_n_inference(model, tokenizer, prompt, max_tokens, temperature,
     return decoded_answers
 
 
-def wrap_input(sample_dict, include_answer=False):
-    question_with_answer_temp = f"""
+def wrap_input(sample_dict, config, include_answer=False):
+    if config['data_dir'] == "HellaSwag":
+        question_with_answer_temp = f"""
+# Context:
+{sample_dict['question']}
+
+# Choices:
+""" 
+    else:        
+        question_with_answer_temp = f"""
 # Question:
 {sample_dict['question']}
 
@@ -222,14 +235,18 @@ def wrap_input(sample_dict, include_answer=False):
     return question_with_answer_temp
 
 
-def generate_inputs(sample_dict, icl_dataset):
-    # TODO: generate the input/instruction for the model
+def generate_inputs(sample_dict, icl_dataset, config: dict):
+    # generate the input/instruction for the model
 
-    prompt = """The following are multiple choice questions (with answers)
-    """
+    if config['data_dir'] == "HellaSwag":
+        prompt = """Which of the above options is the most sensible continuation of the given context? Choose the correct letter (A, B, C, or D).
+"""
+    else:
+        prompt = """The following are multiple choice questions (with answers), which is the correct answer? Choose the correct letter.
+"""
     for icl_sample in icl_dataset:
-        prompt += wrap_input(icl_sample, include_answer=True)
-    prompt += wrap_input(sample_dict, include_answer=False)
+        prompt += wrap_input(icl_sample, config, include_answer=True)
+    prompt += wrap_input(sample_dict, config, include_answer=False)
 
     return dict(
         inputs=prompt,

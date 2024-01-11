@@ -20,12 +20,12 @@ IGNORE_INDEX = -1
 
 
 def prepare(
-    destination_path: Path = Path("data/lima"), 
+    destination_path: Path = Path("data/deita-6k-v0"), 
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
     max_seq_length: int = 1024,  # half of 2048 (the setting in the paper) (https://arxiv.org/pdf/2305.11206.pdf)
     seed: int = 42,
     mask_inputs: bool = False,  # not as in alpaca-lora, we have multi-turn dialogue
-    data_source: str = "GAIR/lima",
+    data_source: str = "hkust-nlp/deita-6k-v0",
     score_path: str = None,
     smooth_value: float = 0.1,
 ) -> None:
@@ -45,43 +45,13 @@ def prepare(
     lima_dataset = load_dataset(data_source)
 
     # Partition the dataset into train and test
-    train_set, test_set = lima_dataset["train"], lima_dataset["test"]
-    train_set, test_set = list(train_set), list(test_set)
-
-    # train_set = [sample for sample in train_set if sample["source"] != "multi_turn"]
-    # train_set = [sample for sample in train_set]
-
+    train_set = lima_dataset["train"]
     print(f"train has {len(train_set):,} samples")
-    print(f"val has {len(test_set):,} samples")
 
     print("Processing train split ...")
     train_set = [prepare_sample(sample, tokenizer, max_seq_length, mask_inputs) for sample in tqdm(train_set)]
     print(tokenizer.decode(train_set[-1]['input_ids']))
-
-    if score_path is not None:
-        with open(score_path) as f:
-            scores = json.load(f)
-            assert len(scores) == len(train_set)
-        scores = make_score_dist(scores, target_mean=smooth_value)
-        train_set = [dict(sample, smooth_value=score) for sample, score in zip(train_set, scores)]
-
     torch.save(train_set, destination_path / "train.pt")
-
-    print("Processing test split ...")
-    test_set = [prepare_sample(sample, tokenizer, max_seq_length, mask_inputs) for sample in tqdm(test_set)]
-    torch.save(test_set, destination_path / "test.pt")
-
-
-def make_score_dist(raw_scores, target_mean=0.1, max_values=0.99):
-    assert target_mean <= max_values
-
-    scores = np.array(raw_scores)
-    while(abs(np.mean(scores) - target_mean) >= 0.001):
-        scores = scores / np.mean(scores) * target_mean
-        scores = np.clip(scores, scores.min(), max_values)
-        print(np.mean(scores))    
-    
-    return scores.tolist()
 
 
 def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_inputs: bool = True) -> dict:
@@ -89,10 +59,8 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
 
     Currently not contains the multi turn conversations.
     """
-    assert 1 <= len(example["conversations"]) <= 2 or (example["source"] == "multi_turn")
-
-    instructions = example["conversations"][::2]
-    responses = example["conversations"][1::2]
+    instructions = [converse['value'] for converse in example["conversations"][::2]]
+    responses = [converse['value'] for converse in example["conversations"][1::2]]
     has_sys_prompt = False
 
     if len(responses) == 0: # for the test set

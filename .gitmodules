@@ -1,0 +1,3 @@
+[submodule "deita"]
+	path = deita
+	url = git@github.com:hkust-nlp/deita.git
