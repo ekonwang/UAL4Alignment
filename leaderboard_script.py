@@ -32,12 +32,12 @@ def main(
         for ckpt in ckpts:
             print(ckpt)
             print()
-            cmd = f'python benchmark/openllm_leaderboard.py --data_dir ARC --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            run_command(cmd)
-            cmd = f'python benchmark/openllm_leaderboard.py --data_dir TruthfulQA --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            run_command(cmd)
-            cmd = f'python benchmark/openllm_leaderboard.py --data_dir MMLU --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            run_command(cmd)
+            # cmd = f'python benchmark/openllm_leaderboard.py --data_dir ARC --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
+            # run_command(cmd)
+            # cmd = f'python benchmark/openllm_leaderboard.py --data_dir TruthfulQA --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
+            # run_command(cmd)
+            # cmd = f'python benchmark/openllm_leaderboard.py --data_dir MMLU --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
+            # run_command(cmd)
             cmd = f'python benchmark/openllm_leaderboard.py --data_dir HellaSwag --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
             run_command(cmd)
 
