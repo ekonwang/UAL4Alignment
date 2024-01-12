@@ -8,10 +8,12 @@ def main(
     max_iters: int = 6999,
     shot_configs: str = "0",
     best_of: int = 4,
-    ckpt_policy: str = "steps"
+    ckpt_policy: str = "steps",
+    target_script: str = "benchmark/openllm_leaderboard.py",
 ):
     assert ckpt.is_dir()
     assert ckpt_policy in ["steps", "finetuned"]
+    assert best_of > 0
 
     # larger epoch priority
     ckpts = reversed(sorted(os.listdir(ckpt)))
@@ -19,15 +21,30 @@ def main(
         ckpts = [c for c in ckpts if (c.endswith(".pth") and "finetuned" not in c and int(c.split('-')[1]) <= max_iters)]
     else:
         ckpts = [c for c in ckpts if "finetuned" in c]
-    print(ckpt)
-    print(ckpts)
-
     ckpts = [ckpt / c for c in ckpts]
 
     shot_setting = shot_configs.split(',')
     shot_setting = [int(s) for s in shot_setting]
 
-    # run bash command
+    dataset_configs = {
+        'ARC': True, 
+        'TruthfulQA': True, 
+        'MMLU': True, 
+        'HellaSwag': True
+    }
+
+    for shot_num in shot_setting:
+        for ckpt in ckpts:
+            for dataset_name, _valid in dataset_configs.items():
+                if not _valid:
+                    continue
+
+                cmd = f'python {target_script} --data_dir {dataset_name} --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
+                run_command(cmd)
+                time.sleep(3)
+
+
+# run bash command
     def run_command(cmd):
         ret = -1 
         while(ret):
@@ -35,21 +52,6 @@ def main(
             print(cmd)
             if ret:
                 time.sleep(60)
-
-    for shot_num in shot_setting:
-        for ckpt in ckpts:
-            print(ckpt)
-            print()
-            # cmd = f'python benchmark/openllm_leaderboard.py --data_dir ARC --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            # run_command(cmd)
-            # cmd = f'python benchmark/openllm_leaderboard.py --data_dir TruthfulQA --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            # run_command(cmd)
-            # cmd = f'python benchmark/openllm_leaderboard.py --data_dir MMLU --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            # run_command(cmd)
-            cmd = f'python benchmark/openllm_leaderboard.py --data_dir HellaSwag --lora_path {ckpt} --shot_num {shot_num} --best_of {best_of}'
-            run_command(cmd)
-
-            time.sleep(3)
 
 
 if __name__ == '__main__':

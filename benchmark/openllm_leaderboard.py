@@ -75,17 +75,7 @@ def main(
     print("Loading model ...", file=sys.stderr)
     t0 = time.time()
 
-    with lazy_load(pretrained_path) as pretrained_checkpoint, lazy_load(lora_path) as lora_checkpoint:
-        name = llama_model_lookup(pretrained_checkpoint)
-
-        with fabric.init_module(empty_init=True), lora(r=lora_r, alpha=lora_alpha, dropout=lora_dropout, enabled=True):
-            model = LLaMA.from_name(name)
-
-            # 1. Load the pretrained weights
-            model.load_state_dict(pretrained_checkpoint, strict=False)
-            # 2. Load the fine-tuned lora weights
-            if lora_checkpoint is not None:
-                model.load_state_dict(lora_checkpoint, strict=False)
+    model = load_causal_model(pretrained_path, lora_path, fabric)
 
     print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
 
@@ -113,7 +103,10 @@ def main(
         prompt = return_dict['inputs']
         # output = model_inference(model, tokenizer, prompt, max_new_tokens, top_k, temperature)
         # response = model_fast_inference(model, tokenizer, prompt, num_choices=return_dict['num_choices'], max_tokens=max_tokens)
-        response = model_best_of_n_inference(model, tokenizer, prompt, max_tokens=max_tokens, temperature=temperature, top_k=top_k, n=best_of)
+        response = model_best_of_n_inference(model, tokenizer, prompt, 
+                                             max_tokens=max_tokens, 
+                                             temperature=temperature, 
+                                             top_k=top_k, n=best_of)
 
         # acc_cnt += 1 if response == sample['answer'] else 0
         acc_cnt += 1 if sample['answer'] in response else 0
@@ -179,7 +172,7 @@ def model_fast_inference(model, tokenizer, prompt, num_choices, max_tokens):
     return model_choice
 
 
-def model_best_of_n_inference(model, tokenizer, prompt, max_tokens, temperature, top_k, n=32):
+def model_best_of_n_inference(model, tokenizer, prompt, max_tokens, temperature, top_k, n=32, _hf_model=False):
     """
     The function is equivalent to model generate n times with temperature and top_k.
     And the model is asked to output in following format:
@@ -188,13 +181,20 @@ def model_best_of_n_inference(model, tokenizer, prompt, max_tokens, temperature,
      """
     # TODO: model must output a choice first, then generate the rationales.
     # so we do not bother generating all the tokens, just care about the first one.
-    encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)[-max_tokens:].unsqueeze(0)
+    if not _hf_model:
+        encoded = tokenizer.encode(prompt, bos=True, eos=False, device=model.device)
+        encoded = encoded[-max_tokens:].unsqueeze(0)
+    else:
+        encoded = tokenizer(prompt, return_tensors="pt")
+        encoded = encoded['input_ids'] if not isinstance(encoded, torch.Tensor) else encoded
+        encoded = encoded[..., -max_tokens:].to(model.device)
     # it is up to the model to generate any choice, even out of the candidate choices (e.g., 'E', 'F', 'G', 'H')
     choices = choice_configs[:]
-    choices_idx = torch.tensor([tokenizer.encode(c, bos=False)[0] for c in choices], device=model.device, dtype=torch.long)
+    # choices_idx = torch.tensor([tokenizer.encode(c, bos=False)[0] for c in choices], device=model.device, dtype=torch.long)
 
     # size is (V)
-    logits = model(encoded)[0, -1] / temperature
+    outputs = model(encoded) if not _hf_model else model(encoded).logits
+    logits = outputs[0, -1] / temperature
     # scatter -float("Inf") to the elements in the logits if not in topk
     if top_k is not None:
         v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
@@ -208,7 +208,10 @@ def model_best_of_n_inference(model, tokenizer, prompt, max_tokens, temperature,
     for i in range(n):
         idxs.append(int(torch.multinomial(probs, num_samples=1)[0].to(dtype=torch.long)))
 
-    decoded_answers = [tokenizer.processor.decode(idx) for idx in idxs]
+    if not _hf_model:
+        decoded_answers = [tokenizer.processor.decode(idx) for idx in idxs]
+    else:
+        decoded_answers = [tokenizer.decode(idx) for idx in idxs]
     return decoded_answers
 
 
@@ -293,6 +296,20 @@ def data_preprocess(data_dir):
         processed.append(sample_dict)
 
     return processed
+
+
+def load_causal_model(pretrained_path, lora_path, fabric):
+    with lazy_load(pretrained_path) as pretrained_checkpoint, lazy_load(lora_path) as lora_checkpoint:
+        name = llama_model_lookup(pretrained_checkpoint)
+
+        with fabric.init_module(empty_init=True), lora(r=lora_r, alpha=lora_alpha, dropout=lora_dropout, enabled=True):
+            model = LLaMA.from_name(name)
+
+            # 1. Load the pretrained weights
+            model.load_state_dict(pretrained_checkpoint, strict=False)
+            # 2. Load the fine-tuned lora weights
+            if lora_checkpoint is not None:
+                model.load_state_dict(lora_checkpoint, strict=False)
         
 
 if __name__ == "__main__":
