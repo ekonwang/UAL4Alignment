@@ -45,13 +45,13 @@ def main(
 
 
 # run bash command
-    def run_command(cmd):
-        ret = -1 
-        while(ret):
-            ret = os.system(cmd)
-            print(cmd)
-            if ret:
-                time.sleep(60)
+def run_command(cmd):
+    ret = -1 
+    while(ret):
+        ret = os.system(cmd)
+        print(cmd)
+        if ret:
+            time.sleep(60)
 
 
 if __name__ == '__main__':
