@@ -310,6 +310,8 @@ def load_causal_model(pretrained_path, lora_path, fabric):
             # 2. Load the fine-tuned lora weights
             if lora_checkpoint is not None:
                 model.load_state_dict(lora_checkpoint, strict=False)
+                
+    return model
         
 
 if __name__ == "__main__":
