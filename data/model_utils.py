@@ -13,7 +13,7 @@ class Scorer(object):
         
         if not is_vllm:
             self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-            self.model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
+            self.model = AutoModelForCausalLM.from_pretrained(model_name_or_path).to("cuda")
         else:
             
             from vllm import LLM, SamplingParams
@@ -35,14 +35,14 @@ class Scorer(object):
                 logger.warning("Meeting Index Error. Returning A Placeholder Score -1.")
                 return -1
         else:
-            input_ids = self.tokenizer.encode(user_input, return_tensors = "pt")
+            input_ids = self.tokenizer.encode(user_input, return_tensors = "pt").to(self.model.device)
             outputs = self.model.generate(input_ids, max_length = max_length, num_return_sequences = 1, return_dict_in_generate = True, output_scores = True)
             logprobs_list = outputs.scores[0][0]
             
         score_logits = []
         score_template = np.array([1,2,3,4,5,6])
         for k in self.id2score:
-            score_logits.append(logprobs_list[k])
+            score_logits.append(logprobs_list[k].cpu().detach())
         score_logits = np.array(score_logits)
         score_npy = softmax(score_logits, axis=0)
         score_npy = score_npy * score_template

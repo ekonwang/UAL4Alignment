@@ -3,28 +3,26 @@ import torch
 from pathlib import Path
 from model_utils import Llama_Scorer
 from tqdm import tqdm
-
+import json
 
 def main(
-    data_dir,
-    output_dir = None,
+    data_dir: str = None,
+    output_dir: str = None,
 ):
     dataset = torch.load(data_dir)
 
     if output_dir is None:
-        output_dir = Path(data_dir).parent / "scored_dataset.pt"
+        complexity_path = Path(data_dir).parent / "complexity_score.json"
+        quality_path = Path(data_dir).parent / "quality_score.json"
+        output_dir = Path(data_dir).parent / "scored.json"
     
-    complexity_score = infer_complexity(dataset)
-    quality_score = infer_quality(dataset)
+    # complexity_score__ = infer_complexity(dataset)
+    # with open(complexity_path, 'w') as f:
+    #     json.dump(complexity_score__, f, indent=4)
 
-    # sanity check
-    assert len(complexity_score) == len(quality_score) == len(dataset)
-
-    for i, sample in enumerate(dataset):
-        sample['complexity_score'] = complexity_score[i]
-        sample['quality_score'] = quality_score[i]
-    
-    torch.save(dataset, output_dir)
+    quality_score__ = infer_quality(dataset)
+    with open(quality_path, 'w') as f:
+        json.dump(quality_score__, f, indent=4)
 
 
 def infer_complexity(dataset):
@@ -34,7 +32,7 @@ def infer_complexity(dataset):
     results = []
     for sample in tqdm(dataset):
         conversations = sample['conversations']
-        instructions = [convers['instruction'] for convers in conversations if convers['from'] == 'human']
+        instructions = [convers['value'] for convers in conversations if convers['from'] == 'user']
         score = 0.0
         for instruction in instructions:
             score += scorer.infer_complexity(instruction)
@@ -49,8 +47,8 @@ def infer_quality(dataset):
     results = []
     for sample in tqdm(dataset):
         conversations = sample['conversations']
-        instructions = [convers['instruction'] for convers in conversations if convers['from'] == 'human']
-        responses = [convers['response'] for convers in conversations if convers['from'] == 'assistant']
+        instructions = [convers['value'] for convers in conversations if convers['from'] == 'user']
+        responses = [convers['value'] for convers in conversations if convers['from'] == 'assistant']
         score = 0.0
         for instruction, response in zip(instructions, responses):
             score += scorer.infer_quality(instruction, response)
