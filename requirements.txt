@@ -11,5 +11,6 @@ openai # benmark/sample/gpt4*.py
 seaborn # for visualizing results
 nltk # for evaluating overfitting in notebook
 vllm # for data/deita_score.py
+peft # for finetune/mistral.py
 
 # git submodule update --recursive [--init]
