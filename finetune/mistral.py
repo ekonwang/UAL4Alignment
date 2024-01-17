@@ -3,6 +3,7 @@ import wandb
 import time
 import os
 import datetime
+import lightning as L
 
 from peft import LoraConfig, get_peft_model
 from tqdm import tqdm
@@ -41,12 +42,12 @@ train_config = {
     'max_iters': 0, # need to be reset
     'warmup_iters': 0, # need to be reset
     'weight_decay': 0.0,
-    'max_seq_length': 1024,
+    'max_seq_length': 768,
 }
 
 def main(
     model_name_or_path: str = "mistralai/Mistral-7B-v0.1",
-    data_path: str = "data/deita-6k-v0",
+    data_path: str = "data/sharegpt-6k",
     out_dir: str = None,
     smooth: float = 0.0,
 ):
@@ -55,11 +56,15 @@ def main(
     # reset hyperprameters
     train_config['model_name_or_path'] = model_name_or_path
     reset_hyperparameters__(dataset, train_config)
+
+    # accelerator, could lightning save the world?
+    fabric = L.Fabric(accelerator="cuda", devices=1, precision="bf16-true")
+    fabric.launch()
+    fabric.seed_everything(1337 + fabric.global_rank)
     
     # load model and tokenizer
     model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-    model = model.half().cuda()
 
     # running identifier
     dataset_name = data_path.split('/')[-1]
@@ -71,14 +76,15 @@ def main(
     wandb.init(project='lima-sft', name=__running_tag)  
 
     # make lora model
-    model = get_peft_model(model, lora_config).half()
+    model = get_peft_model(model, lora_config)
     print_trainable_parameters(model)
     # Done: check if the Lora parameter could be saved
     # Done: check if the Lora parameters could be merged and unmerged
     optimizer = torch.optim.AdamW(model.parameters(), lr=train_config['learning_rate'])
+    model, optimizer = fabric.setup(model, optimizer)
 
     # training
-    train(model, optimizer, dataset, 
+    train(model, fabric, optimizer, dataset, 
           out_dir, train_config, smoothing=smooth)
     wandb.finish()
 
@@ -98,12 +104,13 @@ def print_trainable_parameters(model):
         if param.requires_grad:
             trainable_params += param.numel()
     print(
-        f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
+        f"trainable params: {trainable_params} || all params: {all_param} || trainable: {100 * trainable_params / all_param:.3f}%"
     )
 
 
 def train(
     model,
+    fabric: L.Fabric,
     optimizer: torch.optim.Optimizer,
     train_data: list,
     out_dir: str,
@@ -128,18 +135,18 @@ def train(
 
         t0 = time.time()
 
-        return_dict = get_batch(train_data, model.device, config)
+        return_dict = get_batch(fabric, train_data, config)
 
         if (iter_num + 1) % config['gradient_accumulation_iters'] != 0:
-            # input_dict = dict(input_ids=return_dict['input_ids'])
             logits = model(return_dict['input_ids']).logits
             loss = loss_fn(logits, return_dict['labels'], smoothing=smoothing)
 
             loss /= config['gradient_accumulation_iters']
-            loss.backward()
+            fabric.backward(loss)
             accumulated_loss += loss.item()
 
         if (iter_num + 1) % config['gradient_accumulation_iters'] == 0:
+            fabric.barrier()
             optimizer.step()
             optimizer.zero_grad()
             step_count += 1
@@ -158,7 +165,6 @@ def train(
         if iter_num % config['log_interval'] == 0:
             __log_info = f"iter {iter_num}: loss {loss.item():.4f}, time: {dt*1000:.2f}ms"
             pbar.set_description(__log_info)
-        break
 
 
 def load_datasets(data_path):
@@ -174,7 +180,7 @@ def lora_state_dict(model, bias: str = 'none'):
         return {k: my_state_dict[k] for k in my_state_dict if 'lora_' in k}
 
 
-def get_batch(data: list, device: torch.device, config: dict):
+def get_batch(fabric: L.Fabric, data: list, config: dict):
     ix = torch.randint(len(data), (config['micro_batch_size'],))
 
     input_ids = [data[i]["input_ids"].type(torch.int64) for i in ix]
@@ -194,7 +200,7 @@ def get_batch(data: list, device: torch.device, config: dict):
     y = torch.stack([pad_right(x, pad_id=-1) for x in labels])
     x = x[..., :config['max_seq_length']]
     y = y[..., :config['max_seq_length']]
-    x, y = x.to(device), y.to(device)
+    x, y = fabric.to_device((x.pin_memory(), y.pin_memory()))
     return {"input_ids": x, "labels": y, "smooth_values": smooth_values}
 
 
