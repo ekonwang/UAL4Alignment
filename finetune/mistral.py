@@ -53,12 +53,13 @@ def main(
     # load dataset
     dataset = load_datasets(data_path)
     # reset hyperprameters
+    train_config['model_name_or_path'] = model_name_or_path
     reset_hyperparameters__(dataset, train_config)
     
     # load model and tokenizer
     model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
     tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
-    model = model.cuda()
+    model = model.half().cuda()
 
     # running identifier
     dataset_name = data_path.split('/')[-1]
@@ -70,7 +71,8 @@ def main(
     wandb.init(project='lima-sft', name=__running_tag)  
 
     # make lora model
-    model = get_peft_model(model, lora_config)
+    model = get_peft_model(model, lora_config).half()
+    print_trainable_parameters(model)
     # Done: check if the Lora parameter could be saved
     # Done: check if the Lora parameters could be merged and unmerged
     optimizer = torch.optim.AdamW(model.parameters(), lr=train_config['learning_rate'])
@@ -83,6 +85,21 @@ def main(
     # save the last ckpt
     checkpoint = lora_state_dict(model)
     torch.save(checkpoint, os.path.join(out_dir, "lit-llama-lora-finetuned.pth"))
+
+
+def print_trainable_parameters(model):
+    """
+    Prints the number of trainable parameters in the model.
+    """
+    trainable_params = 0
+    all_param = 0
+    for _, param in model.named_parameters():
+        all_param += param.numel()
+        if param.requires_grad:
+            trainable_params += param.numel()
+    print(
+        f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
+    )
 
 
 def train(
@@ -175,6 +192,8 @@ def get_batch(data: list, device: torch.device, config: dict):
 
     x = torch.stack([pad_right(x, pad_id=0) for x in input_ids])
     y = torch.stack([pad_right(x, pad_id=-1) for x in labels])
+    x = x[..., :config['max_seq_length']]
+    y = y[..., :config['max_seq_length']]
     x, y = x.to(device), y.to(device)
     return {"input_ids": x, "labels": y, "smooth_values": smooth_values}
 
@@ -187,7 +206,7 @@ def reset_hyperparameters__(dataset, config):
 
 def formulate_specific_tag__(dataset_name, smooth, config):
     __running_tag=f'sft_'\
-        f'{dataset_name}_'\
+        f'{dataset_name}_{config["model_name_or_path"].split("/")[-1]}_'\
         f'lora_sctx-{max_seq_length}_micro{config["micro_batch_size"]}_'\
         f'epoch{config["max_epochs"]}'\
         f'{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} '+\
