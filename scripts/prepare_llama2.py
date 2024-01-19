@@ -31,29 +31,30 @@ def prepare(
     The output is a training and validation dataset saved as `train.pt` and `val.pt`,
     which stores the preprocessed and tokenized prompts and labels.
     """
+    # TODO: If we don't have the Meta weights, where do we get the tokenizer from?
+    tokenizer = Tokenizer(tokenizer_path)
+    with open(data_source, 'r') as f:
+        lima_dataset = json.load(f)
+
     destination_path = Path(data_source).parent
     if score_path is not None:
         destination_path = destination_path / f"ls-{smooth_value}"
     destination_path.mkdir(parents=True, exist_ok=True)
     print(destination_path)
 
-    # TODO: If we don't have the Meta weights, where do we get the tokenizer from?
-    tokenizer = Tokenizer(tokenizer_path)
-    lima_dataset = torch.load(data_source)
-
     # Partition the dataset into train and test
     train_set = lima_dataset
     print(f"train has {len(train_set):,} samples")
 
     print("Processing train split ...")
-    train_set = [prepare_sample(sample, tokenizer, max_seq_length, mask_inputs) for sample in tqdm(train_set)]
+    train_set = [prepare_sample(sample, tokenizer, tokenize, max_seq_length, mask_inputs) for sample in tqdm(train_set)]
     print(tokenizer.decode(train_set[-1]['input_ids']))
     torch.save(train_set, destination_path / "train.pt")
     with open(destination_path / "train.json", "w") as f:
         json.dump([sample['decoded_inputs'] for sample in train_set], f, indent=4)
 
 
-def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_inputs: bool = True) -> dict:
+def prepare_sample(example: list, tokenizer: Tokenizer, tokenize_fn, max_length: int, mask_inputs: bool = True) -> dict:
     """Processes a single sample.
 
     Currently not contains the multi turn conversations.
@@ -61,10 +62,11 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
     instructions = [converse['value'] for converse in example["conversations"][::2]]
     responses = [converse['value'] for converse in example["conversations"][1::2]]
     has_sys_prompt = False
+    accumulated_length = 0
 
     if len(responses) == 0: # for the test set
         full_prompt = generate_prompt(instructions[0], sys=has_sys_prompt)
-        encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
+        encoded_full_prompt = tokenize_fn(tokenizer, full_prompt, max_length=max_length, eos=False)
         return {**example, "input_ids": encoded_full_prompt}
     else:
         label_list = []
@@ -77,14 +79,18 @@ def prepare_sample(example: list, tokenizer: Tokenizer, max_length: int, mask_in
                 full_prompt = generate_prompt(instr)
 
             full_prompt_and_response = full_prompt + resp
-            encoded_full_prompt = tokenize(tokenizer, full_prompt, max_length=max_length, eos=False)
-            encoded_full_prompt_and_response = tokenize(tokenizer, full_prompt_and_response, eos=True, max_length=max_length)
+            encoded_full_prompt = tokenize_fn(tokenizer, full_prompt, max_length=max_length, eos=False)
+            encoded_full_prompt_and_response = tokenize_fn(tokenizer, full_prompt_and_response, eos=True, max_length=max_length)
 
             label = encoded_full_prompt_and_response.clone()
             if mask_inputs:
                 label[:len(encoded_full_prompt)] = IGNORE_INDEX
             dialogue_list.append(encoded_full_prompt_and_response)
             label_list.append(label)
+            accumulated_length += len(encoded_full_prompt_and_response)
+
+            if accumulated_length >= max_length:
+                break
             # TODO:  1) to check if ignore_index is set correctly 2) to check if the prefix is correctly tokenized
 
         input_ids = torch.cat(dialogue_list, dim=0)
@@ -107,6 +113,7 @@ def generate_prompt(instruction, sys: bool = False) -> str:
     SYS_PROMPT = """A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions.
 """
     DIALOGUE_PROMPT = f"""
+
 ### User: {instruction}
 
 ### Assistant: """

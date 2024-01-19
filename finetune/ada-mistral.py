@@ -50,6 +50,7 @@ def main(
     out_dir: str = None,
     smooth: float = 0.0,
 ):
+    assert "ls" in data_path
     train_config['model_name_or_path'] = model_name_or_path
 
     # load dataset
@@ -139,7 +140,7 @@ def train(
 
         with fabric.no_backward_sync(model, enabled=((iter_num + 1) % config['gradient_accumulation_iters'] != 0)):
             logits = model(return_dict['input_ids']).logits
-            loss = loss_fn(logits, return_dict['labels'], smoothing=smoothing)
+            loss = loss_fn(logits, return_dict['labels'], smoothing=return_dict['smooth_values'])
 
             fabric.backward(loss / config['gradient_accumulation_iters'])
             accumulated_loss += loss.item()
@@ -153,11 +154,11 @@ def train(
             accumulated_loss = 0.0
 
         if (iter_num + 1) % config['save_interval'] == 0:
-            fabric.print(f"Saving LoRA weights to {out_dir}")
+            print(f"Saving LoRA weights to {out_dir}")
             # We are only saving the LoRA weights
             # TODO: Provide a function/script to merge the LoRA weights with pretrained weights
             checkpoint = lora_state_dict(model)
-            fabric.save(os.path.join(out_dir, f"iter-{iter_num + 1:06d}-ckpt.pth"), checkpoint)
+            torch.save(os.path.join(out_dir, f"iter-{iter_num + 1:06d}-ckpt.pth"), checkpoint)
 
         dt = time.time() - t0
 
@@ -210,8 +211,8 @@ def reset_hyperparameters__(dataset, config):
 
 
 def formulate_specific_tag__(dataset_name, smooth, config):
-    __running_tag=f'{config["model_name_or_path"].split("/")[-1]}/sft_'\
-        f'{dataset_name}_'\
+    __running_tag=f'sft_'\
+        f'{dataset_name}_{config["model_name_or_path"].split("/")[-1]}_'\
         f'lora_sctx-{config["max_seq_length"]}_micro{config["micro_batch_size"]}_'\
         f'epoch{config["max_epochs"]}'\
         f'{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} '+\

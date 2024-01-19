@@ -2,17 +2,25 @@ import torch
 import wandb
 import time
 import os
+import sys
+import json
 import datetime
 import lightning as L
 
+from pathlib import Path
 from peft import LoraConfig, get_peft_model
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-from ual import loss_fn
+# support running without installing as a package
+wd = Path(__file__).parent.parent.resolve()
+sys.path.append(str(wd))
+from lit_llama.lora import mark_only_lora_as_trainable, lora, lora_state_dict
+from lit_llama.model import LLaMA, LLaMAConfig
+from utils import loss_fn, print_trainable_parameters, make_score_dist
 
 # disable wandb
-# os.environ['WANDB_MODE'] = 'disabled'
+os.environ['WANDB_MODE'] = 'disabled'
 
 lora_r = 8
 lora_alpha = 16
@@ -41,19 +49,29 @@ train_config = {
     'max_iters': 0, # need to be reset
     'warmup_iters': 0, # need to be reset
     'weight_decay': 0.0,
-    'max_seq_length': 768,
+    'max_seq_length': 1024, # by default
 }
 
+model_configs = {
+    "llama2-7b": "./checkpoints/lit-llama/7B/lit-llama.pth",
+    "mistral-7b": "mistralai/Mistral-7B-v0.1"
+}
+
+
 def main(
-    model_name_or_path: str = "mistralai/Mistral-7B-v0.1",
+    model_nickname: str = "mistral-7b",
     data_path: str = "data/sharegpt-6k",
     out_dir: str = None,
     smooth: float = 0.0,
+    smooth_strategy: str = "equal", 
 ):
-    train_config['model_name_or_path'] = model_name_or_path
+    # check parameters
+    train_config['smooth_strategy'] = smooth_strategy
+    train_config['model_nickname'] = model_nickname
+    check_hyperparameters__(train_config)
 
     # load dataset
-    dataset = load_datasets(data_path, train_config)
+    dataset = load_datasets(data_path, train_config, smooth=smooth)
     # reset hyperprameters
     reset_hyperparameters__(dataset, train_config)
 
@@ -63,8 +81,7 @@ def main(
     fabric.seed_everything(1337 + fabric.global_rank)
     
     # load model and tokenizer
-    model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
-    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+    model, tokenizer = load_model(train_config, fabric)
 
     # running identifier
     dataset_name = data_path.split('/')[-1]
@@ -75,8 +92,6 @@ def main(
     # upload to wandb
     wandb.init(project='lima-sft', name=__running_tag)  
 
-    # make lora model
-    model = get_peft_model(model, lora_config)
     print_trainable_parameters(model)
     # Done: check if the Lora parameter could be saved
     # Done: check if the Lora parameters could be merged and unmerged
@@ -91,21 +106,6 @@ def main(
     # save the last ckpt
     checkpoint = lora_state_dict(model)
     torch.save(checkpoint, os.path.join(out_dir, "lit-llama-lora-finetuned.pth"))
-
-
-def print_trainable_parameters(model):
-    """
-    Prints the number of trainable parameters in the model.
-    """
-    trainable_params = 0
-    all_param = 0
-    for _, param in model.named_parameters():
-        all_param += param.numel()
-        if param.requires_grad:
-            trainable_params += param.numel()
-    print(
-        f"trainable params: {trainable_params} || all params: {all_param} || trainable: {100 * trainable_params / all_param:.3f}%"
-    )
 
 
 def train(
@@ -166,8 +166,43 @@ def train(
             pbar.set_description(__log_info)
 
 
-def load_datasets(data_path, config):
-    train_data = torch.load(os.path.join(data_path, f"train_{config['model_name_or_path'].split('/')[-1]}.pt"))
+def load_model(fabric: L.Fabric, config: dict):
+    m_nick = train_config['model_nickname']
+    model_name_or_path = train_config['model_name_or_path']
+    max_seq_length = train_config['max_seq_length']
+
+    if m_nick == 'mistral-7b':
+        model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+        # make lora model
+        model = get_peft_model(model, lora_config)
+    elif m_nick == 'llama2-7b':
+        config = LLaMAConfig.from_name("7B")
+        config.block_size = max_seq_length
+        checkpoint = torch.load(model_name_or_path)
+
+        with fabric.init_module(), lora(r=lora_r, alpha=lora_alpha, dropout=lora_dropout, enabled=True):
+            model = LLaMA(config)
+            # strict=False because missing keys due to LoRA weights not contained in checkpoint state
+            model.load_state_dict(checkpoint, strict=False)
+        mark_only_lora_as_trainable(model)    
+    return model, tokenizer
+
+
+def load_datasets(data_path, config, smooth):
+    nickname = config['model_nickname']
+    if nickname == 'llama2-7b':
+        train_data = torch.load(os.path.join(data_path, f"train.pt"))
+    elif nickname == 'mistral-7b':
+        train_data = torch.load(os.path.join(data_path, f"train_Mistral-7B-v0.1.pt"))
+
+    score_path = Path(data_path) / 'score.json'
+    with open(score_path) as f:
+        scores = json.load(f)
+        assert len(scores) == len(train_set)
+    scores = make_score_dist(scores, target_mean=smooth)
+    train_set = [dict(sample, smooth_value=score) for sample, score in zip(train_set, scores)]
+
     return train_data
 
 
@@ -203,18 +238,35 @@ def get_batch(fabric: L.Fabric, data: list, config: dict):
     return {"input_ids": x, "labels": y, "smooth_values": smooth_values}
 
 
+def check_hyperparameters__(config):
+    assert train_config['model_nickname'] in model_configs.keys()
+    train_config['model_name_or_path'] = model_configs[train_config['model_nickname']]
+
+
 def reset_hyperparameters__(dataset, config):
+    model_nickname = config['model_nickname']
+    if model_nickname == 'mistral-7b':
+        config['max_seq_length'] = 768
+
     config['save_interval'] = len(dataset)
     config['max_iters'] = config['save_interval'] * config['max_epochs'] // config['micro_batch_size']
     config['warmup_iters'] = int(0.1 * config['max_iters'])
 
 
 def formulate_specific_tag__(dataset_name, smooth, config):
-    __running_tag=f'{config["model_name_or_path"].split("/")[-1]}/sft_'\
+    nickname = config['model_nickname']
+    max_epochs = config['max_epochs']
+    smooth_strategy = config['smooth_strategy']
+    micro_batch_size = config['micro_batch_size']
+    max_seq_length = config['max_seq_length']
+
+    label_smooth_tag = ("" if smooth == 0.0 else f"_{smooth_strategy}-ls-{smooth:0.2f}")
+
+    __running_tag=f'{nickname}/sft_'\
         f'{dataset_name}_'\
-        f'lora_sctx-{config["max_seq_length"]}_micro{config["micro_batch_size"]}_'\
-        f'epoch{config["max_epochs"]}'\
-        f'{("" if smooth == 0.0 else f"_ls-{smooth:0.2f}")} '+\
+        f'lora_sctx-{max_seq_length}_micro{micro_batch_size}_'\
+        f'epoch{max_epochs}'\
+        f'{label_smooth_tag} '+\
         datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
     return __running_tag
 

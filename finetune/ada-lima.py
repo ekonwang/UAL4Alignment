@@ -24,7 +24,7 @@ from generate import generate
 from lit_llama.lora import mark_only_lora_as_trainable, lora, lora_state_dict
 from lit_llama.model import LLaMA, LLaMAConfig
 from scripts.prepare_alpaca import generate_prompt
-from finetune.lima import loss_fn, get_batch, load_datasets
+from finetune.llama import loss_fn, get_batch, load_datasets
 
 
 instruction_tuning = True

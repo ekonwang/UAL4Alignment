@@ -23,14 +23,13 @@ sys.path.append(str(wd))
 from generate import generate
 from lit_llama.lora import mark_only_lora_as_trainable, lora, lora_state_dict
 from lit_llama.model import LLaMA, LLaMAConfig
-from scripts.prepare_alpaca import generate_prompt
 
 
 instruction_tuning = True
 save_interval = 1030
 log_interval = 1
 
-#
+
 multi_dialogue = 'multi-dialogue'
 # Hyperparameters
 learning_rate = 3e-4
@@ -53,9 +52,11 @@ def main(
     smooth:float = 0.0,
 ):  
     # recognize the dataset name from the data_dir
-    # and reset hyperparameters as well
     dataset_name = data_dir.split('/')[-1]
-    reset_hyperparameters__(dataset_name)
+    train_data = load_datasets(data_dir=data_dir)
+
+    # and reset hyperparameters as well
+    reset_hyperparameters__(train_data)
     __running_tag = formulate_specific_tag__(dataset_name, smooth)
     
 
@@ -72,9 +73,6 @@ def main(
     if fabric.global_rank == 0:
         os.makedirs(out_dir, exist_ok=True)
 
-    train_data = load_datasets(data_dir=data_dir)
-    if multi_dialogue in __running_tag and 'lima' in dataset_name:
-        assert len(train_data) == 1030  # assert the 30 multi-turn dialogues are included
     config = LLaMAConfig.from_name("7B")
     config.block_size = max_seq_length
 
@@ -238,24 +236,13 @@ def load_datasets(data_dir):
     return train_data
 
 
-def reset_hyperparameters__(dataset_name):
+def reset_hyperparameters__(dataset):
     global save_interval, max_iters, max_epochs, warmup_iters
 
-    assert dataset_name in ['lima', 'deita-6k-v0']
-    if dataset_name == 'lima':
-        save_interval = 1030
-        max_epochs = 10
-        # it seems that alpaca is obtained after 3 epochs, but lima needs more
-        max_iters = save_interval * max_epochs // micro_batch_size
-        warmup_iters = int(0.1 * max_iters)
-    elif dataset_name == 'deita-6k-v0':
-        # follow the paper setting: 
-        # WHAT MAKES GOOD DATA FOR ALIGNMENT? A COMPREHENSIVE STUDY OF AUTOMATIC DATA SELECTION IN INSTRUCTION TUNING
-        # (https://arxiv.org/pdf/2312.15685.pdf)
-        max_epochs = 6
-        save_interval = 6000
-        max_iters = save_interval * max_epochs // micro_batch_size
-        warmup_iters = int(0.1 * max_iters)
+    max_epochs = 10
+    save_interval = len(dataset)
+    max_iters = save_interval * max_epochs // micro_batch_size
+    warmup_iters = int(0.1 * max_iters)
 
 
 def formulate_specific_tag__(dataset_name, smooth):
