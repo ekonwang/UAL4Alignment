@@ -20,7 +20,7 @@ from lit_llama.model import LLaMA, LLaMAConfig
 from utils import loss_fn, print_trainable_parameters, make_score_dist
 
 # disable wandb
-os.environ['WANDB_MODE'] = 'disabled'
+# os.environ['WANDB_MODE'] = 'disabled'
 
 lora_r = 8
 lora_alpha = 16
@@ -59,7 +59,7 @@ model_configs = {
 
 
 def main(
-    model_nickname: str = "mistral-7b",
+    model_nickname: str = "llama2-7b",
     data_path: str = "data/sharegpt-6k",
     out_dir: str = None,
     smooth: float = 0.0,
@@ -81,7 +81,7 @@ def main(
     fabric.seed_everything(1337 + fabric.global_rank)
     
     # load model and tokenizer
-    model, tokenizer = load_model(train_config, fabric)
+    model = load_model(fabric, train_config)
 
     # running identifier
     dataset_name = data_path.split('/')[-1]
@@ -138,7 +138,12 @@ def train(
         return_dict = get_batch(fabric, train_data, config)
 
         with fabric.no_backward_sync(model, enabled=((iter_num + 1) % config['gradient_accumulation_iters'] != 0)):
-            logits = model(return_dict['input_ids']).logits
+            logits = model(return_dict['input_ids'])
+            if not isinstance(logits, torch.Tensor):
+                logits = logits.logits
+
+            if config['smooth_strategy'] == 'case':
+                smoothing = return_dict['smooth_values']
             loss = loss_fn(logits, return_dict['labels'], smoothing=smoothing)
 
             fabric.backward(loss / config['gradient_accumulation_iters'])
@@ -150,6 +155,8 @@ def train(
             optimizer.zero_grad()
             step_count += 1
             wandb.log({"loss": accumulated_loss / config['gradient_accumulation_iters']})
+            if config['smooth_strategy'] == 'case':
+                wandb.log({"smooth_value": return_dict['smooth_values'][0]})
             accumulated_loss = 0.0
 
         if (iter_num + 1) % config['save_interval'] == 0:
@@ -173,7 +180,7 @@ def load_model(fabric: L.Fabric, config: dict):
 
     if m_nick == 'mistral-7b':
         model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
-        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+        # tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         # make lora model
         model = get_peft_model(model, lora_config)
     elif m_nick == 'llama2-7b':
@@ -186,7 +193,7 @@ def load_model(fabric: L.Fabric, config: dict):
             # strict=False because missing keys due to LoRA weights not contained in checkpoint state
             model.load_state_dict(checkpoint, strict=False)
         mark_only_lora_as_trainable(model)    
-    return model, tokenizer
+    return model
 
 
 def load_datasets(data_path, config, smooth):
@@ -196,12 +203,13 @@ def load_datasets(data_path, config, smooth):
     elif nickname == 'mistral-7b':
         train_data = torch.load(os.path.join(data_path, f"train_Mistral-7B-v0.1.pt"))
 
-    score_path = Path(data_path) / 'score.json'
-    with open(score_path) as f:
-        scores = json.load(f)
-        assert len(scores) == len(train_set)
-    scores = make_score_dist(scores, target_mean=smooth)
-    train_set = [dict(sample, smooth_value=score) for sample, score in zip(train_set, scores)]
+    if config['smooth_strategy'] == 'case':
+        score_path = Path(data_path) / 'score.json'
+        with open(score_path) as f:
+            scores = json.load(f)
+            assert len(scores) == len(train_data)
+        scores = make_score_dist(scores, target_mean=smooth)
+        train_data = [dict(sample, smooth_value=score) for sample, score in zip(train_data, scores)]
 
     return train_data
 
@@ -220,7 +228,7 @@ def get_batch(fabric: L.Fabric, data: list, config: dict):
     input_ids = [data[i]["input_ids"].type(torch.int64) for i in ix]
     labels = [data[i]["labels"].type(torch.int64) for i in ix]
     smooth_values = None
-    if "smooth_value" in data[0].keys():
+    if config['smooth_strategy'] == 'case':
         smooth_values = [data[i]["smooth_value"] for i in ix]
 
     max_len = max(len(s) for s in input_ids)
@@ -240,6 +248,7 @@ def get_batch(fabric: L.Fabric, data: list, config: dict):
 
 def check_hyperparameters__(config):
     assert train_config['model_nickname'] in model_configs.keys()
+    assert train_config['smooth_strategy'] in ['case', 'equal']
     train_config['model_name_or_path'] = model_configs[train_config['model_nickname']]
 
 
