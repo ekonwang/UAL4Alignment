@@ -4,6 +4,8 @@ __pycache__
 *.egg-info
 build
 *.ipynb
+.scripts
+*.sh
 
 # data
 data
