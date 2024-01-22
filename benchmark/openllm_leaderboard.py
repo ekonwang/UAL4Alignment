@@ -53,16 +53,16 @@ def main(
     assert data_dir in data_configs.keys()
     assert shot_num <= 32
 
-    lora_signature = f"{'-'.join(str(lora_path).split('/')[-2:]).rsplit('.', 1)[0]}" if lora_path is not None else "pretrained-baseline"
-    # f"/multi-choices/"\
+    lora_signature = '/'.join(str(lora_path).rsplit('.', 1)[0].split('/')[-3:]) # base model / sft model signature / model steps
     output_file = Path(f"out/benchmark/"\
                     f"best-of-n/"\
-                    f"lima_{data_dir}/"\
+                    f"{data_dir}/"\
                     f"{shot_num}-shot/"\
-                    f"{lora_signature}_{data_dir}"\
+                    f"{lora_signature}"\
                     f".json")
     output_file.parent.mkdir(parents=True, exist_ok=True)
     if output_file.is_file():
+        print(f"File {output_file} already exists, skip.", file=sys.stderr)
         exit(0)
     print(output_file)
 

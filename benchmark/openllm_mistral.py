@@ -26,6 +26,7 @@ from openllm_leaderboard import (lora_alpha, lora_dropout, lora_r,
 __HF_MODEL="mistralai/Mistral-7B-v0.1"
 
 def main(
+    lora_path: Path = None,
     max_tokens: int = 512,
     top_k: int = 200,
     temperature: float = 0.8,
@@ -39,12 +40,12 @@ def main(
     assert shot_num <= 32
 
     pretrained_path: str = __HF_MODEL
-    lora_signature = f"{'-'.join(str(pretrained_path).split('/')[-2:]).rsplit('.', 1)[0]}"
+    lora_signature = '/'.join(str(lora_path).rsplit('.', 1)[0].split('/')[-3:]) # base model / sft model signature / model steps
     output_file = Path(f"out/benchmark/"\
                     f"best-of-n/"\
-                    f"lima_{data_dir}/"\
+                    f"{data_dir}/"\
                     f"{shot_num}-shot/"\
-                    f"{lora_signature}_{data_dir}"\
+                    f"{lora_signature}"\
                     f".json")
     output_file.parent.mkdir(parents=True, exist_ok=True)
     if output_file.is_file():
