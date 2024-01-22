@@ -280,14 +280,6 @@ def formulate_specific_tag__(dataset_name, smooth, config):
     return __running_tag
 
 
-def load_lora_ckpt_from_disk_to_model__(lora_path, model):
-    lora_ckpt = torch.load(lora_path)
-    model.load_state_dict(lora_ckpt, strict=False)
-    # TODO: check sanity 
-    # merge LoRA parameters into model to accelerate inference.
-    model.merge_adapter()
-    # NOTES: use `unmerge_adapter` to separate LoRA parameters from model.
-
 if __name__ == '__main__':
     torch.set_float32_matmul_precision("high")
     from jsonargparse.cli import CLI

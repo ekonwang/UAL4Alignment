@@ -10,6 +10,7 @@ from typing import Optional
 import lightning as L
 import torch
 from datasets import load_dataset
+from peft import get_peft_model
 from tqdm import tqdm
 
 # support running without installing as a package
@@ -19,9 +20,9 @@ sys.path.append(str(wd))
 from generate import generate
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-from openllm_leaderboard import (lora_alpha, lora_dropout, lora_r,
-                                 choice_configs, data_configs,
+from openllm_leaderboard import (choice_configs, data_configs, lora_config,
                                  data_preprocess, model_best_of_n_inference, generate_inputs)
+from utils import load_lora_ckpt_from_disk_to_hf_model
 
 __HF_MODEL="mistralai/Mistral-7B-v0.1"
 
@@ -55,15 +56,16 @@ def main(
     precision = "bf16-true" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "32-true"
     fabric = L.Fabric(devices=1, precision=precision)
 
+    # model loading
     print("Loading model ...", file=sys.stderr)
     t0 = time.time()
-
     model = AutoModelForCausalLM.from_pretrained(pretrained_path).half()
     tokenizer = AutoTokenizer.from_pretrained(pretrained_path)
+    model = load_lora_ckpt_from_disk_to_hf_model(lora_path, model, lora_config=lora_config)
+    print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
+    # evaluation mode
     model.eval()
     model = fabric.setup(model)
-
-    print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
 
     collected_responses = list()
     dataset = data_preprocess(data_dir)
@@ -81,8 +83,8 @@ def main(
     }
     for sample in tqdm(test_dataset):
         return_dict = generate_inputs(sample, icl_dataset, config=inference_config)
-        # prompt = generate_prompt(return_dict['inputs'])
         prompt = return_dict['inputs']
+        # Mistral loaded as hf format model
         response = model_best_of_n_inference(model, tokenizer, prompt, 
                                              max_tokens=max_tokens, 
                                              temperature=temperature, 
@@ -102,7 +104,6 @@ def main(
             response=response,
         ))
         
-
     if fabric.device.type == "cuda":
         print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB", file=sys.stderr)
     
@@ -112,8 +113,6 @@ def main(
         json.dump(collected_responses, f, indent=4)
     print(f"Saved to {output_file}", file=sys.stderr)
 
-
-        
 
 if __name__ == "__main__":
     from jsonargparse import CLI

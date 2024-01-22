@@ -10,6 +10,7 @@ from typing import Optional
 import lightning as L
 import torch
 from datasets import load_dataset
+from peft import LoraConfig
 from tqdm import tqdm
 
 # support running without installing as a package
@@ -25,6 +26,19 @@ from scripts.prepare_lima import generate_prompt
 lora_r = 8
 lora_alpha = 16
 lora_dropout = 0.0
+
+# hf model lora config
+lora_config = LoraConfig(
+    r=lora_r,
+    lora_alpha=lora_alpha,
+    target_modules=[
+        "q_proj", # change q, v attention is enough
+        "v_proj",
+    ],
+    bias="none",
+    lora_dropout=lora_dropout,
+    task_type="CAUSAL_LM",
+)
 
 data_configs = {
     "ARC": ("ai2_arc", "ARC-Challenge", "validation"),
