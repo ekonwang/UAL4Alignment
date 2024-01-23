@@ -16,6 +16,8 @@ from tqdm import tqdm
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
+# load dataset offline for robustness
+os.environ["HF_DATASETS_OFFLINE"] = "1"
 
 from generate import generate
 from transformers import AutoTokenizer, AutoModelForCausalLM

@@ -16,6 +16,8 @@ from tqdm import tqdm
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
+# load dataset offline for robustness
+os.environ["HF_DATASETS_OFFLINE"] = "1"
 
 from generate import generate
 from lit_llama import Tokenizer, LLaMA
@@ -82,6 +84,7 @@ def main(
 
     if quantize is not None:
         raise NotImplementedError("Quantization in LoRA is not supported yet")
+    dataset = data_preprocess(data_dir)
 
     precision = "bf16-true" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "32-true"
     fabric = L.Fabric(devices=1, precision=precision)
@@ -98,7 +101,6 @@ def main(
     tokenizer = Tokenizer(tokenizer_path)
 
     collected_responses = list()
-    dataset = data_preprocess(data_dir)
     test_dataset, icl_dataset = dataset, []
 
     if shot_num > 0:
