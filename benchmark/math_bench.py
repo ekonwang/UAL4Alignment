@@ -56,7 +56,7 @@ def main(
 ) -> None:
     assert shot_num <= 32
 
-    lora_signature = f"{'-'.join(str(lora_path).split('/')[-2:]).rsplit('.', 1)[0]}" if lora_path is not None else pretrained_model_tag
+    lora_signature = f"{'/'.join(str(lora_path).rsplit('.', 1)[0].split('/')[-2:])}" if lora_path is not None else pretrained_model_tag
     output_file = Path(f"out/benchmark/"\
                     f"math/"\
                     f"{data_dir}/"\
@@ -202,6 +202,11 @@ def model_generate(model, tokenizer, prompt, model_tag,
 def data_preprocess(data_dir):
     if data_dir == 'gsm8k':
         dataset = load_dataset("gsm8k", "main", split="test")
+    elif data_dir == 'meta-math':
+        dataset = load_dataset("meta-math/MetaMathQA")['train']
+        # select the last 1000 samples as test set
+        # NOTE: the set of samples not appear in the training set
+        dataset = [d for d in dataset][-1000:]
 
     processed = []
     for sample in dataset:
@@ -210,6 +215,13 @@ def data_preprocess(data_dir):
                 question = sample['question'],
                 answer = sample['answer'].rsplit('####', 1)[1].strip(),
                 response = sample['answer'].rsplit('####', 1)[0].strip()
+            ))
+        elif data_dir == 'meta-math':
+            processed.append(dict(
+                question = sample['query'],
+                # detect the last word as the ground truth
+                answer = sample['response'].strip(' .').split()[-1],
+                response = sample['response'].rsplit('####', 1)[0].strip()
             ))
         else:
             print(data_dir)
@@ -238,7 +250,8 @@ class GeneralTokenizer:
 
 def load_causal_model(pretrained_model_tag, lora_path, fabric):
     # model tag should be inside the lora path 
-    assert pretrained_model_tag in str(lora_path)
+    if lora_path is not None:
+        assert pretrained_model_tag in str(lora_path)
 
     if pretrained_model_tag == 'llama2-7b':
         pretrained_path = 'checkpoints/lit-llama/7B/lit-llama.pth'
@@ -260,7 +273,8 @@ def load_causal_model(pretrained_model_tag, lora_path, fabric):
         model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
         tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         # make lora model
-        model = load_lora_ckpt_from_disk_to_hf_model(lora_path, model, lora_config=lora_config)
+        if lora_path is not None:
+            model = load_lora_ckpt_from_disk_to_hf_model(lora_path, model, lora_config=lora_config)
                 
     return model, GeneralTokenizer(tokenizer, pretrained_model_tag)
         
