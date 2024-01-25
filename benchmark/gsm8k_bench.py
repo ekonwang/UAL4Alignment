@@ -23,6 +23,7 @@ from lit_llama import Tokenizer, LLaMA
 from lit_llama.lora import lora
 from lit_llama.utils import lazy_load, llama_model_lookup
 from scripts.prepare_llama2 import generate_prompt
+from utils import load_lora_ckpt_from_disk_to_hf_model
 
 
 lora_r = 8
@@ -44,13 +45,14 @@ lora_config = LoraConfig(
 def main(
     lora_path: Path = None,
     pretrained_model_tag: str = 'llama2-7b',
+    max_new_tokens: int = 256,
     max_tokens: int = 512,
     top_k: int = 200,
     temperature: float = 0.8,
     data_dir: str = "gsm8k",
     shot_num: int = 0,
     output_file: str = None,
-    best_of: int = 4,
+    best_of: int = 1,
 ) -> None:
     assert shot_num <= 32
 
@@ -92,21 +94,24 @@ def main(
         test_dataset, icl_dataset = dataset[:len(dataset)-shot_num], dataset[-shot_num:]
     for sample in tqdm(test_dataset):
         return_dict = generate_inputs(sample, icl_dataset, config=inference_config)
-        # prompt = generate_prompt(return_dict['inputs'])
         prompt = return_dict['inputs']
         
         responses = []
         for i in range(best_of):
-            responses.append(model_generate(model, tokenizer, prompt, pretrained_model_tag, max_tokens, top_k, temperature))
+            resp = model_generate(model, tokenizer, prompt, pretrained_model_tag, 
+                                  max_tokens=max_tokens, max_new_tokens=max_new_tokens, 
+                                  top_k=top_k, temperature=temperature)
+            responses.append(resp)
         
         response = responses[0]
         for resp in responses:
             if sample['answer'] in resp:
                 response = resp
                 acc_cnt += 1
-
-        tot_cnt += 1
+                break
+        
         print(prompt, response)
+        tot_cnt += 1
         print("Ground truth: ", sample['answer'])
         print("\n")
         print("========== {}/{} ({:.2f} %) ==========".format(acc_cnt, tot_cnt, acc_cnt / tot_cnt * 100))
@@ -160,12 +165,12 @@ def generate_inputs(sample, icl_dataset, config):
         instruction += generate_inside_parts(example, include_response=True)
     instruction += generate_inside_parts(sample, include_response=False)
     prompt = generate_prompt(instruction)
-    return prompt
+    return dict(inputs=prompt)
 
 
 def model_generate(model, tokenizer, prompt, model_tag,
-                    max_new_tokens, top_k, temperature):
-    encoded = tokenizer.encode(prompt).to(model.device)
+                   max_tokens, max_new_tokens, top_k, temperature):
+    encoded = tokenizer.encode(prompt).to(model.device)[-max_tokens:]
 
     if model_tag == 'llama2-7b':
         output = generate(
@@ -196,7 +201,7 @@ def model_generate(model, tokenizer, prompt, model_tag,
 
 def data_preprocess(data_dir):
     if data_dir == 'gsm8k':
-        dataset = load_dataset("gsm8k", split="test")
+        dataset = load_dataset("gsm8k", "main", split="test")
 
     processed = []
     for sample in dataset:
@@ -227,10 +232,14 @@ class GeneralTokenizer:
         if self.model_tag == 'llama2-7b':
             return self.processor.decode(tokens)
         elif self.model_tag == 'mistral-7b':
+            tokens = tokens.squeeze()
             return self.processor.decode(tokens)
 
 
 def load_causal_model(pretrained_model_tag, lora_path, fabric):
+    # model tag should be inside the lora path 
+    assert pretrained_model_tag in str(lora_path)
+
     if pretrained_model_tag == 'llama2-7b':
         pretrained_path = 'checkpoints/lit-llama/7B/lit-llama.pth'
         tokenizer = Tokenizer('checkpoints/lit-llama/tokenizer.model')
@@ -251,19 +260,9 @@ def load_causal_model(pretrained_model_tag, lora_path, fabric):
         model = AutoModelForCausalLM.from_pretrained(model_name_or_path)
         tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         # make lora model
-        model = get_peft_model(model, lora_config)
-        load_lora_ckpt_from_disk_to_model__(lora_path, model)
+        model = load_lora_ckpt_from_disk_to_hf_model(lora_path, model, lora_config=lora_config)
                 
-    return model, GeneralTokenizer(tokenizer)
-
-
-def load_lora_ckpt_from_disk_to_model__(lora_path, model):
-    lora_ckpt = torch.load(lora_path)
-    model.load_state_dict(lora_ckpt, strict=False)
-    # TODO: check sanity 
-    # merge LoRA parameters into model to accelerate inference.
-    model.merge_adapter()
-    # NOTES: use `unmerge_adapter` to separate LoRA parameters from model.
+    return model, GeneralTokenizer(tokenizer, pretrained_model_tag)
         
 
 if __name__ == "__main__":
