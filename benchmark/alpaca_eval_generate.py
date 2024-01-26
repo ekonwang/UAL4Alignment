@@ -48,7 +48,7 @@ lora_config = LoraConfig(
 def main(
     lora_path: Path = None,
     pretrained_model_tag: str = 'mistral-7b',
-    max_new_tokens: int = 2048,
+    max_new_tokens: int = 1536,
     max_tokens: int = 512,
     top_k: int = 200,
     temperature: float = 0.8,
