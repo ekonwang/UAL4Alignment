@@ -1,4 +1,6 @@
-torch>=2.0.0
+torch==2.0.0+cu118
+torchaudio==2.0.1+cu118
+torchvision==0.15.1+cu118
 lightning @ git+https://github.com/Lightning-AI/lightning@master
 sentencepiece
 tqdm  # convert_checkpoint.py
@@ -12,5 +14,6 @@ seaborn # for visualizing results
 nltk # for evaluating overfitting in notebook
 vllm # for data/deita_score.py
 peft # for finetune/mistral.py
+wandb # for finetune/mistral.py
 
 # git submodule update --recursive [--init]
