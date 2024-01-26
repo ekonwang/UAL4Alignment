@@ -56,7 +56,7 @@ def main(
 ) -> None:
     assert shot_num <= 32
 
-    lora_signature = f"{'/'.join(str(lora_path).rsplit('.', 1)[0].split('/')[-2:])}" if lora_path is not None else pretrained_model_tag
+    lora_signature = f"{'/'.join(str(lora_path).rsplit('.', 1)[0].split('/')[-3:])}" if lora_path is not None else pretrained_model_tag
     output_file = Path(f"out/benchmark/"\
                     f"math/"\
                     f"{data_dir}/"\

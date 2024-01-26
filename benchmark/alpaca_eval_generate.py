@@ -57,7 +57,9 @@ def main(
 ) -> None:
     
     assert Path(lora_path).is_file()
-    lora_signature = f"{'/'.join(str(lora_path).rsplit('.', 1)[0].split('/')[-2:])}"
+    lora_signature = f"{'/'.join(str(lora_path).rsplit('.', 1)[0].split('/')[-3:])}"
+    pretrained_model_tag = str(lora_path).split('/')[-3] # mistral-7b or llama2-7b
+    assert pretrained_model_tag in ['mistral-7b', 'llama2-7b']
 
     # output to on-disk file
     output_file = Path(f"out/benchmark/"\
