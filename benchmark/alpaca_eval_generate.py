@@ -67,9 +67,9 @@ def main(
                     f"{lora_signature}"\
                     f".json")
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    if output_file.is_file():
-        print(f'File {output_file} exists. Exiting..')
-        exit(0)
+    # if output_file.is_file():
+    #     print(f'File {output_file} exists. Exiting..')
+    #     exit(0)
     print(output_file)
 
     # model setup
