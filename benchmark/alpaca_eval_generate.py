@@ -47,7 +47,7 @@ lora_config = LoraConfig(
 
 def main(
     lora_path: Path = None,
-    pretrained_model_tag: str = 'llama2-7b',
+    pretrained_model_tag: str = 'mistral-7b',
     max_new_tokens: int = 2048,
     max_tokens: int = 512,
     top_k: int = 200,
@@ -92,10 +92,14 @@ def main(
                                 max_tokens=max_tokens,
                                 max_new_tokens=max_new_tokens,
                                 top_k=top_k, temperature=temperature)
+        
+        eval_sample['output'] = output
+        eval_sample['generator'] = lora_signature
         outputs.append(dict(
             **eval_sample,
-            output=output
         ))
+        print(prompt, output)
+        print('\n=============================\n')
   
         # save to disk
         with open(output_file, "w") as f:
