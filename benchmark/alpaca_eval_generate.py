@@ -66,6 +66,7 @@ def main(
                     f".json")
     output_file.parent.mkdir(parents=True, exist_ok=True)
     if output_file.is_file():
+        print(f'File {output_file} exists. Exiting..')
         exit(0)
     print(output_file)
 
@@ -81,10 +82,11 @@ def main(
 
     # data setup
     eval_set = datasets.load_dataset("tatsu-lab/alpaca_eval", "alpaca_eval")["eval"]
+    eval_set = [e for e in eval_set]
 
     # generate
     outputs = []
-    for eval_sample in eval_set:
+    for eval_sample in tqdm(eval_set):
         instruction = eval_sample["instruction"]
         prompt = generate_prompt(instruction)
         output = model_generate(model, tokenizer, prompt, 
