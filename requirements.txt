@@ -15,5 +15,7 @@ nltk # for evaluating overfitting in notebook
 vllm # for data/deita_score.py
 peft # for finetune/mistral.py
 wandb # for finetune/mistral.py
+alpaca-eval # for alpaca eval benchmarking
+openai # for gpt4 benchmarking
 
 # git submodule update --recursive [--init]
