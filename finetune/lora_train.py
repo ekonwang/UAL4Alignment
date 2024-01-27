@@ -156,8 +156,8 @@ def train(
             optimizer.zero_grad()
             step_count += 1
             wandb.log({"loss": accumulated_loss / config['gradient_accumulation_iters']})
-            if config['smooth_strategy'] == 'case':
-                wandb.log({"smooth_value": return_dict['smooth_values'][0]})
+            # if config['smooth_strategy'] == 'case':
+            #     wandb.log({"smooth_value": return_dict['smooth_values'][0]})
             accumulated_loss = 0.0
 
         if (iter_num + 1) % config['save_interval'] == 0:

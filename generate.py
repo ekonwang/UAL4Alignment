@@ -25,6 +25,8 @@ def generate(
     temperature: float = 1.0,
     top_k: Optional[int] = None,
     eos_id: Optional[int] = None,
+    tokenizer: Tokenizer = None,
+    stream: bool = False,
 ) -> torch.Tensor:
     """Takes a conditioning sequence (prompt) as input and continues to generate as many tokens as requested.
 
@@ -57,6 +59,9 @@ def generate(
 
         xm.mark_step()
 
+    # stream generation
+    stream_list = []
+
     # generate max_new_tokens tokens
     for _ in range(max_new_tokens):
         x = idx.index_select(0, input_pos).view(1, -1)
@@ -72,6 +77,15 @@ def generate(
 
         probs = torch.nn.functional.softmax(logits, dim=-1)
         idx_next = torch.multinomial(probs, num_samples=1).to(dtype=dtype)
+
+        # stream output
+        if stream:
+            stream_list.append(int(idx_next))
+            substr = tokenizer.decode(torch.tensor(stream_list))
+            # output when a sentence encounter punctuations
+            if substr.endswith(',') or substr.endswith('.'):
+                print(substr, end=" ", flush=True)
+                stream_list.clear()
 
         # advance
         input_pos = input_pos[-1:] + 1

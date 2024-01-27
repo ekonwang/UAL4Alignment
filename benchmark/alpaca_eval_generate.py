@@ -19,31 +19,9 @@ from peft import LoraConfig, get_peft_model
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from generate import generate
-from lit_llama import Tokenizer, LLaMA
-from lit_llama.lora import lora
-from lit_llama.utils import lazy_load, llama_model_lookup
 from scripts.prepare_llama2 import generate_prompt
-from utils import load_lora_ckpt_from_disk_to_hf_model
 # model generation utils
-from math_bench import load_causal_model, model_generate
-
-
-lora_r = 8
-lora_alpha = 16
-lora_dropout = 0.0
-
-lora_config = LoraConfig(
-    r=lora_r,
-    lora_alpha=lora_alpha,
-    target_modules=[
-        "q_proj", # change q, v attention is enough
-        "v_proj",
-    ],
-    bias="none",
-    lora_dropout=lora_dropout,
-    task_type="CAUSAL_LM",
-)
+from utils import load_causal_model, model_generate
 
 def main(
     lora_path: Path = None,
