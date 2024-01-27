@@ -91,7 +91,7 @@ def main(
         out_dir = f"out/lora/{dataset_name}/{__running_tag.split(' ')[0]}"
     os.makedirs(out_dir, exist_ok=True)
     # upload to wandb
-    wandb.init(project='lima-sft', name=__running_tag)  
+    wandb.init(project='[acl2024]-ual4alignment', name=__running_tag)  
 
     print_trainable_parameters(model)
     # Done: check if the Lora parameter could be saved
