@@ -54,6 +54,7 @@ train_config = {
 
 model_configs = {
     "llama2-7b": "./checkpoints/lit-llama/7B/lit-llama.pth",
+    "llama2-13b": "./checkpoints/lit-llama/13B/lit-llama.pth",
     "mistral-7b": "mistralai/Mistral-7B-v0.1"
 }
 
@@ -183,8 +184,12 @@ def load_model(fabric: L.Fabric, config: dict):
         # tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
         # make lora model
         model = get_peft_model(model, lora_config)
-    elif m_nick == 'llama2-7b':
-        config = LLaMAConfig.from_name("7B")
+    elif m_nick == 'llama2-7b' or m_nick == 'llama2-13b':
+        if m_nick == 'llama2-7b':
+            config = LLaMAConfig.from_name("7B")
+        elif m_nick == 'llama2-13b':
+            config = LLaMAConfig.from_name("13B")
+
         config.block_size = max_seq_length
         checkpoint = torch.load(model_name_or_path)
 
@@ -199,6 +204,8 @@ def load_model(fabric: L.Fabric, config: dict):
 def load_datasets(data_path, config, smooth):
     nickname = config['model_nickname']
     if nickname == 'llama2-7b':
+        train_data = torch.load(os.path.join(data_path, f"train.pt"))
+    elif nickname == 'llama2-13b':
         train_data = torch.load(os.path.join(data_path, f"train.pt"))
     elif nickname == 'mistral-7b':
         train_data = torch.load(os.path.join(data_path, f"train_Mistral-7B-v0.1.pt"))
@@ -256,6 +263,9 @@ def reset_hyperparameters__(dataset, config):
     model_nickname = config['model_nickname']
     if model_nickname == 'mistral-7b':
         config['max_seq_length'] = 768
+    elif model_nickname == 'llama2-13b':
+        # A100 allows longer context length.
+        config['max_seq_length'] = 2048
 
     config['save_interval'] = len(dataset)
     config['max_iters'] = config['save_interval'] * config['max_epochs'] // config['micro_batch_size']

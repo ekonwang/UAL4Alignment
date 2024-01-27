@@ -54,8 +54,11 @@ def main(
     output_file: str = None,
     best_of: int = 1,
 ) -> None:
+    # sanity check
     assert shot_num <= 32
+    assert pretrained_model_tag in ['llama2-7b', 'llama2-13b', 'mistral-7b']
 
+    # set up output file
     lora_signature = f"{'/'.join(str(lora_path).rsplit('.', 1)[0].split('/')[-3:])}" if lora_path is not None else pretrained_model_tag
     output_file = Path(f"out/benchmark/"\
                     f"math/"\
@@ -68,14 +71,13 @@ def main(
         exit(0)
     print(output_file)
 
+    # model setup
     precision = "bf16-true" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "32-true"
     fabric = L.Fabric(devices=1, precision=precision)
-
     print("Loading model ...", file=sys.stderr)
     t0 = time.time()
     model, tokenizer = load_causal_model(pretrained_model_tag, lora_path, fabric)
     print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
-
     model.eval()
     model = fabric.setup(model)
 
@@ -172,7 +174,7 @@ def model_generate(model, tokenizer, prompt, model_tag,
                    max_tokens, max_new_tokens, top_k, temperature):
     encoded = tokenizer.encode(prompt).to(model.device)[-max_tokens:]
 
-    if model_tag == 'llama2-7b':
+    if 'llama2' in model_tag:
         output = generate(
             model,
             idx=encoded,
@@ -235,13 +237,13 @@ class GeneralTokenizer:
         self.model_tag = model_tag 
     
     def encode(self, string):
-        if self.model_tag == 'llama2-7b':
+        if 'llama2' in self.model_tag:
             return self.processor.encode(string, bos=True, eos=False)
         elif self.model_tag == 'mistral-7b':
             return self.processor.encode(string, add_special_tokens=True, return_tensors='pt')
 
     def decode(self, tokens):
-        if self.model_tag == 'llama2-7b':
+        if 'llama2' in self.model_tag:
             return self.processor.decode(tokens)
         elif self.model_tag == 'mistral-7b':
             tokens = tokens.squeeze()
@@ -253,8 +255,11 @@ def load_causal_model(pretrained_model_tag, lora_path, fabric):
     if lora_path is not None:
         assert pretrained_model_tag in str(lora_path)
 
-    if pretrained_model_tag == 'llama2-7b':
-        pretrained_path = 'checkpoints/lit-llama/7B/lit-llama.pth'
+    if 'llama2' in pretrained_model_tag:
+        if pretrained_model_tag == 'llama2-7b':
+            pretrained_path = 'checkpoints/lit-llama/7B/lit-llama.pth'
+        if pretrained_model_tag == 'llama2-13b':
+            pretrained_path = 'checkpoints/lit-llama/13B/lit-llama.pth'
         tokenizer = Tokenizer('checkpoints/lit-llama/tokenizer.model')
 
         with lazy_load(pretrained_path) as pretrained_checkpoint, lazy_load(lora_path) as lora_checkpoint:

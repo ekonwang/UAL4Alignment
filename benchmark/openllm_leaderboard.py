@@ -315,6 +315,13 @@ def data_preprocess(data_dir):
 
 
 def load_causal_model(pretrained_path, lora_path, fabric):
+    # sanity check
+    if '7B' in pretrained_path:
+        assert 'llama2-7b' in pretrained_path
+    if '13B' in pretrained_path:
+        assert 'llama2-13b' in pretrained_path
+
+    # load model
     with lazy_load(pretrained_path) as pretrained_checkpoint, lazy_load(lora_path) as lora_checkpoint:
         name = llama_model_lookup(pretrained_checkpoint)
 
