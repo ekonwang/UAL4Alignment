@@ -20,7 +20,7 @@ from lit_llama.model import LLaMA, LLaMAConfig
 from utils import loss_fn, print_trainable_parameters, make_score_dist
 
 # disable wandb
-os.environ['WANDB_MODE'] = 'disabled'
+# os.environ['WANDB_MODE'] = 'disabled'
 
 lora_r = 8
 lora_alpha = 16

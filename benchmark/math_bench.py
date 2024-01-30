@@ -31,18 +31,20 @@ def main(
     shot_num: int = 0,
     output_file: str = None,
     best_of: int = 1,
+    seed: int = None,
 ) -> None:
     # sanity check
     assert shot_num <= 32
     assert pretrained_model_tag in ['llama2-7b', 'llama2-13b', 'mistral-7b']
 
     # set up output file
+    seed_signature = f"_seed{seed}" if seed else ""
     lora_signature = f"{'/'.join(str(lora_path).rsplit('.', 1)[0].split('/')[-3:])}" if lora_path is not None else pretrained_model_tag
     output_file = Path(f"out/benchmark/"\
                     f"math/"\
                     f"{data_dir}/"\
                     f"{shot_num}-shot/"\
-                    f"{lora_signature}_{data_dir}"\
+                    f"{lora_signature}_{data_dir}{seed_signature}"\
                     f".json")
     output_file.parent.mkdir(parents=True, exist_ok=True)
     if output_file.is_file():
@@ -58,6 +60,8 @@ def main(
     print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
     model.eval()
     model = fabric.setup(model)
+    if seed:
+        fabric.seed_everything(seed + fabric.global_rank)
 
     collected_responses = list()
     dataset = data_preprocess(data_dir)
@@ -155,7 +159,7 @@ def data_preprocess(data_dir):
         dataset = load_dataset("meta-math/MetaMathQA")['train']
         # select the last 1000 samples as test set
         # NOTE: the set of samples not appear in the training set
-        dataset = [d for d in dataset][-1000:]
+        dataset = [d for d in dataset][-1030:]
 
     processed = []
     for sample in dataset:
