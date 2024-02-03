@@ -1,11 +1,14 @@
-# consider run instead: pip install torch==2.0.0 torchvision==0.15.1 torchaudio==2.0.1 --index-url https://download.pytorch.org/whl/cu118
+# step #1: 
+#   `pip install torch==2.0.0 torchvision==0.15.1 torchaudio==2.0.1 --index-url https://download.pytorch.org/whl/cu118`
+# step #2: 
+#   `pip install -r requirements.txt --upgrade --upgrade-strategy only-if-needed`
 lightning==2.1.3 # 2.2.0dev0
 sentencepiece
 tqdm  # convert_checkpoint.py
 numpy  # train.py dataset memmap
 jsonargparse[signatures]  # generate.py, convert_checkpoint.py CLI
 bitsandbytes  # quantization.py
-datasets  # evaluate.py
+datasets==2.15.0  # evaluate.py
 zstandard  # prepare_redpajama.py
 openai # benmark/sample/gpt4*.py
 seaborn # for visualizing results
@@ -15,5 +18,6 @@ peft # for finetune/mistral.py
 wandb # for finetune/mistral.py
 # alpaca-eval # for alpaca eval benchmarking
 openai # for gpt4 benchmarking
+scikit-learn # for clustering analysis
 
 # git submodule update --recursive [--init]

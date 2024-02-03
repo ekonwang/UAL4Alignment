@@ -20,6 +20,7 @@ from lit_llama import Tokenizer, LLaMA
 from lit_llama.lora import lora
 from lit_llama.utils import lazy_load, llama_model_lookup
 from scripts.prepare_lima import generate_prompt
+from utils import load_causal_model
 
 lora_r = 8
 lora_alpha = 16
@@ -27,17 +28,13 @@ lora_dropout = 0.0
 
 
 def main(
-    lora_path: str = None,
-    pretrained_path: Path = Path("checkpoints/lit-llama/7B/lit-llama.pth"),
-    tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
+    lora_path: Path = None,
+    model_tag: str = 'llama2-7b',
     data_dir: str = "./data/lima",
     output_file: Path = Path("./out/pca_analysis/llama2-7b-lima-test-features.pt"),
     data_split: str = "test",
 ) -> None:
     
-    # lora path could be empty, which means the pretrained model
-    assert pretrained_path.is_file()
-    assert tokenizer_path.is_file()
 
     precision = "bf16-true" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "32-true"
     fabric = L.Fabric(devices=1, precision=precision)
@@ -47,20 +44,8 @@ def main(
     print("Loading model ...", file=sys.stderr)
     t0 = time.time()
 
-    with lazy_load(pretrained_path) as pretrained_checkpoint, lazy_load(lora_path) as lora_checkpoint:
-        name = llama_model_lookup(pretrained_checkpoint)
-
-        with fabric.init_module(empty_init=True), lora(r=lora_r, alpha=lora_alpha, dropout=lora_dropout, enabled=True):
-            model = LLaMA.from_name(name)
-
-            # 1. Load the pretrained weights
-            model.load_state_dict(pretrained_checkpoint, strict=False)
-            # 2. Load the fine-tuned lora weights
-            if lora_checkpoint is not None:
-                model.load_state_dict(lora_checkpoint, strict=False)
-
     print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
-
+    model, tokenizer = load_causal_model(model_tag, lora_path, fabric)
     model.eval()
     model = fabric.setup(model)
 
@@ -80,7 +65,12 @@ def main(
             collected_transformer_features.append((label, feature))
         print(len(labels))
 
-    hook = model.transformer.ln_f.register_forward_hook(transformer_hook)
+    if model_tag == 'llama2-7b':
+        hook = model.transformer.ln_f.register_forward_hook(transformer_hook)
+    elif model_tag == 'mistral-7b':
+        pass
+    else:
+        raise NotImplementedError(f'Unsupported model_tag: {model_tag}')
 
     for sample in tqdm(test_dataset):
         encoded = sample['input_ids'].view(1, -1).to(fabric.device)
@@ -92,9 +82,13 @@ def main(
         print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB", file=sys.stderr)
 
 
-def load_datasets(data_dir):
-    train_data = torch.load(os.path.join(data_dir, "train.pt"))
-    test_data = torch.load(os.path.join(data_dir, "test.pt"))
+def load_datasets(data_dir, model_tag="llama2-7b"):
+    if model_tag == 'llama2-7b':
+        train_data = torch.load(os.path.join(data_dir, "train.pt"))
+        test_data = torch.load(os.path.join(data_dir, "test.pt"))
+    elif model_tag == 'mistral-7b':
+        train_data = torch.load(os.path.join(data_dir, "train_Mistral-7B-v0.1.pt"))
+        test_data = torch.load(os.path.join(data_dir, "test_Mistral-7B-v0.1.pt"))
     return dict(train=train_data, test=test_data)
 
 

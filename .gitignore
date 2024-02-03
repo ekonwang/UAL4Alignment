@@ -6,6 +6,7 @@ build
 *.ipynb
 .scripts
 *.sh
+.note*/
 
 # data
 data
