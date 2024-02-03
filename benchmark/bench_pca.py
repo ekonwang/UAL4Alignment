@@ -31,7 +31,7 @@ def main(
     pretrained_path: Path = Path("checkpoints/lit-llama/7B/lit-llama.pth"),
     tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
     data_dir: str = "./data/lima",
-    output_file: Path = Path("./out/benchmark/pca_analysis/llama2-7b-lima-test-features.pt"),
+    output_file: Path = Path("./out/pca_analysis/llama2-7b-lima-test-features.pt"),
     data_split: str = "test",
 ) -> None:
     
