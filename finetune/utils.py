@@ -92,11 +92,12 @@ def make_score_dist(raw_scores, target_mean=0.1, max_values=0.99):
 
 
 class UncertaintyAware:
-    def __init__(self, target_avg=0.1):
+    def __init__(self, target_avg=0.1, beta=1.0):
         assert 0.0 < target_avg < 1.0
         self.target_avg = target_avg
         self.move_avg = MovingAverage()
         self.__result_move_avg = MovingAverage()
+        self.beta = beta
 
 
     def __ppl_cal(self, logits, labels):
@@ -117,9 +118,14 @@ class UncertaintyAware:
             self.move_avg.update(ppl_f)
         # TODO: the methodology of uncertainty-aware is not clear
         # factors = self.move_avg.get() / ppl.view(-1).numpy()
-        factors = ppl.view(-1).numpy() / self.move_avg.get()
-        # intuitive understanding: the higher the uncertainty, the less the smooth value in cross entropy
-        smooth_values = [self.target_avg * factor for factor in factors.tolist()]
+        if self.beta != 1.0:
+            # s^{*} = s_{avg} + \beta * \frac{ppl - ppl_{avg}}{ppl_{avg}} * s_{avg}
+            factors = [self.beta * (p - self.move_avg.get()) / self.move_avg.get() for p in ppl_floats]
+            smooth_values = [self.target_avg * (1 + factor) for factor in factors]
+        else:
+            factors = ppl.view(-1).numpy() / self.move_avg.get()
+            # intuitive understanding: the higher the uncertainty, the less the smooth value in cross entropy
+            smooth_values = [self.target_avg * factor for factor in factors.tolist()]
         smooth_values = np.clip(np.array(smooth_values), 0.0, 0.99).tolist()
 
         # record the smooth values for logging

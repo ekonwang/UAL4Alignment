@@ -61,14 +61,16 @@ model_configs = {
 
 def main(
     model_nickname: str = "llama2-7b",
-    data_path: str = "data/sharegpt-6k",
+    data_path: str = "data/deita-6k-v0",
     out_dir: str = None,
     smooth: float = 0.0,
     smooth_strategy: str = "equal", 
+    beta_tc: float = 1.0,
 ):
     # check parameters
     train_config['smooth_strategy'] = smooth_strategy
     train_config['model_nickname'] = model_nickname
+    train_config['beta'] = beta_tc
     check_hyperparameters__(train_config)
 
     # load dataset
@@ -88,7 +90,7 @@ def main(
     dataset_name = data_path.split('/')[-1]
     __running_tag = formulate_specific_tag__(dataset_name, smooth, train_config)
     if out_dir is None:
-        out_dir = f"out/lora/{dataset_name}/{__running_tag.split(' ')[0]}"
+        out_dir = f"out/lora-token-certainty/{dataset_name}/{__running_tag.split(' ')[0]}"
     os.makedirs(out_dir, exist_ok=True)
     # upload to wandb
     wandb.init(project='[acl2024]-ual4alignment', name=__running_tag)  
@@ -101,7 +103,7 @@ def main(
 
     # training
     train(model, fabric, optimizer, dataset, 
-          out_dir, train_config, smoothing=smooth)
+          out_dir, train_config, smoothing=smooth, beta=beta_tc)
     wandb.finish()
 
     # save the last ckpt
@@ -116,7 +118,8 @@ def train(
     train_data: list,
     out_dir: str,
     config: dict,
-    smoothing: float = 0.0
+    smoothing: float = 0.0,
+    beta: float = 1.0,
 ) -> None:
     """The training loop.
 
@@ -124,7 +127,7 @@ def train(
     """
     step_count = 0
     accumulated_loss = 0.0
-    awarer = UncertaintyAware()
+    awarer = UncertaintyAware(target_avg=smoothing, beta=beta)
 
     pbar = tqdm(range(config['max_iters']))
     for iter_num in pbar:
@@ -145,8 +148,6 @@ def train(
             if not isinstance(logits, torch.Tensor):
                 logits = logits.logits
 
-            if config['smooth_strategy'] == 'case':
-                smoothing = return_dict['smooth_values']
             loss = loss_fn(logits, return_dict['labels'], smoothing=tc_smooth)
 
             fabric.backward(loss / config['gradient_accumulation_iters'])
@@ -176,6 +177,11 @@ def train(
             if smoothing != 0.0:
                 __log_info += f", smooth_value {tc_smooth[0]:.4f}"
             pbar.set_description(__log_info)
+    
+    with open(os.path.join(out_dir, 'smooth_values.json'), 'w') as f:
+        import json
+        json.dump(awarer.all(), f)
+        print(f'Average smooth value {awarer.final()}')
 
 
 def load_model(fabric: L.Fabric, config: dict):
@@ -282,8 +288,9 @@ def formulate_specific_tag__(dataset_name, smooth, config):
     smooth_strategy = config['smooth_strategy']
     micro_batch_size = config['micro_batch_size']
     max_seq_length = config['max_seq_length']
+    beta = config['beta']
 
-    label_smooth_tag = ("" if smooth == 0.0 else f"_{smooth_strategy}-ls-{smooth:0.2f}")
+    label_smooth_tag = ("" if smooth == 0.0 else f"_ls-{smooth:0.2f}_beta-{beta:0.2f}")
 
     __running_tag=f'{nickname}/sft_'\
         f'{dataset_name}_'\
