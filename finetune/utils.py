@@ -90,3 +90,68 @@ def make_score_dist(raw_scores, target_mean=0.1, max_values=0.99):
     
     return scores.tolist()
 
+
+class UncertaintyAware:
+    def __init__(self, target_avg=0.1):
+        assert 0.0 < target_avg < 1.0
+        self.target_avg = target_avg
+        self.move_avg = MovingAverage()
+        self.__result_move_avg = MovingAverage()
+
+
+    def __ppl_cal(self, logits, labels):
+        """Calculate the perplexity of the logits."""
+        # (batch_size, seq_len, vocab_size), (batch_size, seq_len)
+        log_preds = F.log_softmax(logits, dim=2)
+        sum_log_preds =  torch.gather(log_preds, 2, labels.unsqueeze(-1)).squeeze(-1).sum(dim=1)
+        _mask = (labels != -1).to(torch.float).sum(dim=1)
+        ppl = -sum_log_preds / _mask
+
+        return ppl.cpu().detach()
+
+    def get_value(self, logits, return_dict):
+        """Calculate the uncertainty based on inputs PPL."""
+        ppl = self.__ppl_cal(logits, return_dict['labels'])
+        ppl_floats = ppl.view(-1).numpy().tolist()
+        for i, ppl_f in enumerate(ppl_floats):
+            self.move_avg.update(ppl_f)
+        # TODO: the methodology of uncertainty-aware is not clear
+        # factors = self.move_avg.get() / ppl.view(-1).numpy()
+        factors = ppl.view(-1).numpy() / self.move_avg.get()
+        # intuitive understanding: the higher the uncertainty, the less the smooth value in cross entropy
+        smooth_values = [self.target_avg * factor for factor in factors.tolist()]
+        smooth_values = np.clip(np.array(smooth_values), 0.0, 0.99).tolist()
+
+        # record the smooth values for logging
+        for i, smooth_value in enumerate(smooth_values):
+            self.__result_move_avg.update(smooth_value)
+        return smooth_values
+
+
+    def final(self):
+        # report the average smooth value
+        return self.__result_move_avg.get()
+    
+    def last(self):
+        return self.__result_move_avg.values[-1]
+    
+    def all(self):
+        return self.__result_move_avg.values
+
+
+class MovingAverage:
+    def __init__(self):
+        self.values = []
+        self.tot = 0.0
+    
+    def update(self, value):
+        assert isinstance(value, float)
+        self.values.append(value)
+        self.tot += value
+    
+    def get(self):
+        return self.tot / len(self.values)
+
+
+
+
