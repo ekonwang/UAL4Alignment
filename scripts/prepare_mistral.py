@@ -1,5 +1,6 @@
 """Implementation derived from https://github.com/tloen/alpaca-lora"""
 import sys
+import os
 from pathlib import Path
 
 # support running without installing as a package
@@ -42,6 +43,12 @@ def prepare(
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
     with open(data_source, 'r') as f:
         lima_dataset = json.load(f)
+    test_source = data_source.replace('data.json', 'data_test.json')
+    if os.path.exists(test_source):
+        with open(test_source, 'r') as f:
+            lima_dataset_test = json.load(f)
+    else:
+        lima_dataset_test = None
 
     # Partition the dataset into train and test
     train_set = lima_dataset
@@ -49,6 +56,9 @@ def prepare(
 
     print("Processing train split ...")
     train_set = [prepare_sample(sample, tokenizer, tokenize, max_seq_length, mask_inputs) for sample in tqdm(train_set)]
+    if lima_dataset_test is not None:
+        test_set = [prepare_sample(sample, tokenizer, tokenize, max_seq_length, mask_inputs) for sample in tqdm(lima_dataset_test)]
+        torch.save(test_set, destination_path / 'test_Mistral-7B-v0.1.pt')
     print(tokenizer.decode(train_set[-2]['input_ids']))
     torch.save(train_set, destination_path / "train_Mistral-7B-v0.1.pt")
 

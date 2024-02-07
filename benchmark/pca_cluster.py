@@ -35,7 +35,6 @@ def main(
     data_split: str = "test",
 ) -> None:
     
-
     precision = "bf16-true" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "32-true"
     fabric = L.Fabric(devices=1, precision=precision)
 
@@ -43,9 +42,8 @@ def main(
 
     print("Loading model ...", file=sys.stderr)
     t0 = time.time()
-
-    print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
     model, tokenizer = load_causal_model(model_tag, lora_path, fabric)
+    print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
     model.eval()
     model = fabric.setup(model)
 
@@ -68,7 +66,8 @@ def main(
     if model_tag == 'llama2-7b':
         hook = model.transformer.ln_f.register_forward_hook(transformer_hook)
     elif model_tag == 'mistral-7b':
-        pass
+        print(model)
+        hook = model._forward_module.model.norm.register_forward_hook(transformer_hook)
     else:
         raise NotImplementedError(f'Unsupported model_tag: {model_tag}')
 
