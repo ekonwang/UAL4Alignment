@@ -144,9 +144,9 @@ def train(
 
         with fabric.no_backward_sync(model, enabled=((iter_num + 1) % config['gradient_accumulation_iters'] != 0)):
             logits = model(return_dict['input_ids'])
-            tc_smooth = awarer.get_value(logits, return_dict) if smoothing != 0.0 else 0.0
             if not isinstance(logits, torch.Tensor):
                 logits = logits.logits
+            tc_smooth = awarer.get_value(logits, return_dict) if smoothing != 0.0 else 0.0
 
             loss = loss_fn(logits, return_dict['labels'], smoothing=tc_smooth)
 

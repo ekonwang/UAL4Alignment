@@ -24,7 +24,7 @@ from lit_llama import Tokenizer, LLaMA
 from lit_llama.lora import lora
 from lit_llama.utils import lazy_load, llama_model_lookup
 from scripts.prepare_lima import generate_prompt
-from utils import lora_alpha, lora_dropout, lora_r, lora_config
+from utils import lora_alpha, lora_dropout, lora_r, lora_config, load_causal_model
 
 data_configs = {
     "ARC": ("ai2_arc", "ARC-Challenge", "validation"),
@@ -36,8 +36,7 @@ choice_configs = [c for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
 
 def main(
     lora_path: Path = None,
-    pretrained_path: Path = Path("checkpoints/lit-llama/7B/lit-llama.pth"),
-    tokenizer_path: Path = Path("checkpoints/lit-llama/tokenizer.model"),
+    pretrained_tag: str = 'llama2-7b',
     quantize: Optional[str] = None,
     max_tokens: int = 512,
     top_k: int = 200,
@@ -48,14 +47,13 @@ def main(
     best_of: int = 4,
 ) -> None:
     
-    assert pretrained_path.is_file()
-    assert tokenizer_path.is_file()
     assert data_dir in data_configs.keys()
     assert shot_num <= 32
 
+    model_split = str(lora_path).split('/')[-5]
     lora_signature = '/'.join(str(lora_path).rsplit('.', 1)[0].split('/')[-3:]) # base model / sft model signature / model steps
     output_file = Path(f"out/benchmark/"\
-                    f"best-of-n/"\
+                    f"best-of-n/{model_split}/"\
                     f"{data_dir}/"\
                     f"{shot_num}-shot/"\
                     f"{lora_signature}"\
@@ -75,14 +73,13 @@ def main(
 
     print("Loading model ...", file=sys.stderr)
     t0 = time.time()
-
-    model = load_causal_model(pretrained_path, lora_path, fabric)
-
+    model, tokenizer = load_causal_model(pretrained_model_tag=pretrained_tag, lora_path=lora_path, fabric=fabric)
+    tokenizer = tokenizer.processor
+    # model = load_causal_model(pretrained_path, lora_path, fabric)
     print(f"Time to load model: {time.time() - t0:.02f} seconds.", file=sys.stderr)
 
     model.eval()
     model = fabric.setup(model)
-    tokenizer = Tokenizer(tokenizer_path)
 
     collected_responses = list()
     test_dataset, icl_dataset = dataset, []
@@ -97,6 +94,12 @@ def main(
         "shot_num": shot_num,
         "best_of": best_of,
     }
+    if 'llama2' in pretrained_tag:
+        hf_signature = False 
+    elif 'mistral' in pretrained_tag:
+        hf_signature = True
+    else:
+        raise NotImplementedError()
     for sample in tqdm(test_dataset):
         return_dict = generate_inputs(sample, icl_dataset, config=inference_config)
         # prompt = generate_prompt(return_dict['inputs'])
@@ -106,7 +109,7 @@ def main(
         response = model_best_of_n_inference(model, tokenizer, prompt, 
                                              max_tokens=max_tokens, 
                                              temperature=temperature, 
-                                             top_k=top_k, n=best_of)
+                                             top_k=top_k, n=best_of, _hf_model=hf_signature)
 
         # acc_cnt += 1 if response == sample['answer'] else 0
         acc_cnt += 1 if sample['answer'] in response else 0
@@ -125,7 +128,6 @@ def main(
 
     if fabric.device.type == "cuda":
         print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB", file=sys.stderr)
-    
     collected_responses = [dict(acc=100*acc_cnt/tot_cnt)] + collected_responses
 
     with open(output_file, "w") as f:
@@ -297,29 +299,6 @@ def data_preprocess(data_dir):
 
     return processed
 
-
-def load_causal_model(pretrained_path, lora_path, fabric):
-    # sanity check
-    if '7B' in pretrained_path:
-        assert 'llama2-7b' in pretrained_path
-    if '13B' in pretrained_path:
-        assert 'llama2-13b' in pretrained_path
-
-    # load model
-    with lazy_load(pretrained_path) as pretrained_checkpoint, lazy_load(lora_path) as lora_checkpoint:
-        name = llama_model_lookup(pretrained_checkpoint)
-
-        with fabric.init_module(empty_init=True), lora(r=lora_r, alpha=lora_alpha, dropout=lora_dropout, enabled=True):
-            model = LLaMA.from_name(name)
-
-            # 1. Load the pretrained weights
-            model.load_state_dict(pretrained_checkpoint, strict=False)
-            # 2. Load the fine-tuned lora weights
-            if lora_checkpoint is not None:
-                model.load_state_dict(lora_checkpoint, strict=False)
-                
-    return model
-        
 
 if __name__ == "__main__":
     from jsonargparse import CLI
