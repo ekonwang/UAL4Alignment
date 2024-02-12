@@ -61,13 +61,30 @@ def main(
         
         for label, feature in zip(labels, features):
             collected_transformer_features.append((label, feature))
-        print(len(labels))
+    
+    def transformer_input_hook(model, input, output):
+        # the output is the results of the last RMS norm layer, size is (B, T, embed_size)
+        input = input[0]
+        embed_size = input.size(-1)
+        features = input.clone().cpu().detach()[...,:-1,:].view(-1, embed_size)
+        labels = encoded[...,1:].view(-1).tolist()
+
+        assert len(labels) == features.size(0)
+        
+        for label, feature in zip(labels, features):
+            collected_transformer_features.append((label, feature))
+
 
     if model_tag == 'llama2-7b':
         hook = model.transformer.ln_f.register_forward_hook(transformer_hook)
     elif model_tag == 'mistral-7b':
         print(model)
-        hook = model._forward_module.model.norm.register_forward_hook(transformer_hook)
+        # import pdb; pdb.set_trace()
+        try:
+            hook = model._forward_module.model.lm_head.register_forward_hook(transformer_input_hook)
+        except Exception as e:
+            print(e)
+            hook = model._forward_module.lm_head.register_forward_hook(transformer_hook)
     else:
         raise NotImplementedError(f'Unsupported model_tag: {model_tag}')
 
@@ -76,6 +93,7 @@ def main(
         logits = model(encoded)
     
     hook.remove()
+    print(f'Save {len(collected_transformer_features)} features into {output_file}')
     torch.save(collected_transformer_features, output_file)
     if fabric.device.type == "cuda":
         print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB", file=sys.stderr)
